@@ -7,6 +7,10 @@ export default async function handler(
   if (req.method === "POST") {
     const youtube = new Client();
     const { type, query,page } = req.body;
+    const apiKey = req.headers['api-key'];
+    if (apiKey!='S#D$FG%^$#DEF%G^*$%R^T&Y*U') {
+        res.status(500).json({message:'Please provide correct api key'});
+    }
     var items;
     var nextResponse;
 

@@ -2,6 +2,10 @@ import { Client } from "youtubei";
 export default async function handler(req, res) {
     const youtube = new Client();
     const { id, page } = req.body;
+    const apiKey = req.headers['api-key'];
+    if (apiKey!='S#D$FG%^$#DEF%G^*$%R^T&Y*U') {
+        res.status(500).json({message:'Please provide correct api key'});
+    }
     var items = {};
     var newVideos = {};
     var channel = await youtube.findOne(id, { type: "channel" });
