@@ -1,13 +1,11 @@
 import { Client } from "youtubei";
 export default async function handler(req, res) {
-  if (req.method === "POST") {
     const youtube = new Client();
     const { id, page } = req.body;
     var items = {};
     var newVideos = {};
     var channel = await youtube.findOne(id, { type: "channel" });
 
-    // console.log(channel.length);
     if (page > 1) {
       for (var i = 2; i <= page; i++) {
         try {
@@ -19,7 +17,7 @@ export default async function handler(req, res) {
     } else {
       channel = await channel.videos.next();
     }
-    // console.log(channel.videos.items);
+
     if (page > 1 && newVideos.length > 0) {
       if (page == 2) {
         newVideos = newVideos?.slice(30, 60);
@@ -40,7 +38,7 @@ export default async function handler(req, res) {
       });
       res.status(200).json(items);
     } else {
-      // console.log(channel);
+
       items = channel?.map(function (item) {
         return {
           id: item?.id,
@@ -57,11 +55,5 @@ export default async function handler(req, res) {
       });
       res.status(200).json(items);
     }
-    // await response.videos.next();
-    // console.log(response.videos.items);
-
-    res.status(200).json("ok");
-  } else {
-    res.status(405).end();
-  }
+    res.status(200).json(items);
 }
