@@ -58,12 +58,13 @@ export default async function handler(
       }
     } else if (type == "channel") {
       items = response?.items?.map(function (item) {
+        let last = Object.keys(item.thumbnails)[Object.keys(item.thumbnails).length-1];
         return {
           id: item.id,
           title: item.name,
           videoCount: item.videoCount,
           subscriberCount: item.subscriberCount,
-          thumbnails: item.thumbnails[0]?.url,
+          thumbnails: item.thumbnails[last]?.url,
         };
       });
       res.status(200).json(items);
