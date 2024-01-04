@@ -17,6 +17,7 @@ export default async function handler(
     const response = await youtube.search(query, {
       type: type,
     });
+    // console.log(response);
     if (page>1) {
       for(var i=2;i<=page;i++){
         nextResponse = await response.next();
@@ -36,6 +37,7 @@ export default async function handler(
             thumbnail: `https://img.youtube.com/vi/${item?.id}/mqdefault.jpg`,
             channelName: item?.channel.name,
             channelID: item?.channel.id,
+            channelThumbnail: item?.channel?.thumbnails[0]?.url,
           };
         });
         res.status(200).json(items);
@@ -52,6 +54,7 @@ export default async function handler(
             thumbnail: `https://img.youtube.com/vi/${item?.id}/mqdefault.jpg`,
             channelName: item?.channel.name,
             channelID: item?.channel.id,
+            channelThumbnail: item?.channel?.thumbnails[0]?.url,
           };
         });
         res.status(200).json(items);
@@ -59,6 +62,7 @@ export default async function handler(
     } else if (type == "channel") {
       items = response?.items?.map(function (item) {
         let last = Object.keys(item.thumbnails)[Object.keys(item.thumbnails).length-1];
+        console.log(item);
         return {
           id: item.id,
           title: item.name,

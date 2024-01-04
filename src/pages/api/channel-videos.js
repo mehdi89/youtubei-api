@@ -1,10 +1,11 @@
 import { Client } from "youtubei";
 export default async function handler(req, res) {
+  if (req.method === "POST") {
     const youtube = new Client();
     const { id, page } = req.body;
     const apiKey = req.headers['api-key'];
     if (apiKey!='S#D$FG%^$#DEF%G^*$%R^T&Y*U') {
-        res.status(500).json({message:'Please provide correct api key'});
+        res.status(401).json({message:'Please provide correct api key'});
     }
     var items = {};
     var newVideos = {};
@@ -59,5 +60,7 @@ export default async function handler(req, res) {
       });
       res.status(200).json(items);
     }
-    res.status(200).json(items);
+  }else{
+    res.status(405).end();
+  }
 }
