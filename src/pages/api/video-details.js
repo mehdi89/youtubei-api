@@ -15,25 +15,33 @@ export default async function handler(req, res) {
         return res.status(404).json({ message: "Video not found" });
       }
 
+      let transcript;
+      try {
+        transcript = await video.getTranscript();
+      } catch (transcriptError) {
+        console.error("Error fetching transcript:", transcriptError);
+        transcript = null;
+      }
+
       let response = {
-        id: video?.id,
+        id: video.id,
         channel: {
-          youtube_channel_id: video?.channel?.id,
-          name: video?.channel?.name,
-          subscriberCount: video?.channel?.subscriberCount,
-          thumbnails: video?.channel?.thumbnails,
-          videoCount: video?.channel?.videoCount,
-          url: video?.channel?.url,
+          youtube_channel_id: video.channel.id,
+          name: video.channel.name,
+          subscriberCount: video.channel.subscriberCount,
+          thumbnails: video.channel.thumbnails,
+          videoCount: video.channel.videoCount,
+          url: video.channel.url,
         },
-        title: video?.title,
-        chapters: video?.chapters,
-        description: video?.description,
-        duration: video?.duration,
-        likeCount: video?.likeCount,
-        isLiveContent: video?.isLiveContent,
-        uploadDate: video?.uploadDate,
-        viewCount: video?.viewCount,
-        transcript: await video?.getTranscript(id), // Ensure this is awaited
+        title: video.title,
+        chapters: video.chapters,
+        description: video.description,
+        duration: video.duration,
+        likeCount: video.likeCount,
+        isLiveContent: video.isLiveContent,
+        uploadDate: video.uploadDate,
+        viewCount: video.viewCount,
+        transcript: transcript,
       };
 
       res.status(200).json(response);
