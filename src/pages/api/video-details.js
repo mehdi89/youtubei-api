@@ -1,15 +1,20 @@
 import { Client } from "youtubei";
+
 export default async function handler(req, res) {
   if (req.method === "POST") {
     const youtube = new Client();
     const { id } = req.body;
     const apiKey = req.headers["api-key"];
-    if (apiKey != "S#D$FG%^$#DEF%G^*$%R^T&Y*U") {
-      res.status(401).json({ message: "Please provide correct api key" });
+    if (apiKey !== "S#D$FG%^$#DEF%G^*$%R^T&Y*U") {
+      return res.status(401).json({ message: "Please provide correct API key" });
     }
     try {
-      var video = await youtube.getVideo(id);
-      console.log(video?.channel);
+      const video = await youtube.getVideo(id);
+
+      if (!video) {
+        return res.status(404).json({ message: "Video not found" });
+      }
+
       let response = {
         id: video?.id,
         channel: {
@@ -22,15 +27,15 @@ export default async function handler(req, res) {
         },
         title: video?.title,
         chapters: video?.chapters,
-        //   'comments':video?.comments,
         description: video?.description,
         duration: video?.duration,
         likeCount: video?.likeCount,
         isLiveContent: video?.isLiveContent,
         uploadDate: video?.uploadDate,
         viewCount: video?.viewCount,
-        transcript: video?.getTranscript(id),
+        transcript: await video?.getTranscript(id), // Ensure this is awaited
       };
+
       res.status(200).json(response);
     } catch (error) {
       console.error("Error fetching video data:", error);
