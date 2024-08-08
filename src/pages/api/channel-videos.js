@@ -1,34 +1,42 @@
 import { Client } from "youtubei";
+
 export default async function handler(req, res) {
   if (req.method === "POST") {
     const youtube = new Client();
     const { id, page } = req.body;
     const apiKey = req.headers['api-key'];
-    if (apiKey!='S#D$FG%^$#DEF%G^*$%R^T&Y*U') {
-        res.status(401).json({message:'Please provide correct api key'});
-    }
-    var items = {};
-    var newVideos = {};
-    var channel = await youtube.findOne(id, { type: "channel" });
 
-    if (page > 1) {
-      for (var i = 2; i <= page; i++) {
-        try {
-          newVideos = await channel.videos.next(i);
-        } catch (error) {
-          res.status(200).json(newVideos);
+    if (apiKey !== 'S#D$FG%^$#DEF%G^*$%R^T&Y*U') {
+      return res.status(401).json({ message: 'Please provide correct API key' });
+    }
+
+    try {
+      var items = [];
+      var newVideos = [];
+      var channel = await youtube.findOne(id, { type: "channel" });
+
+      if (!channel) {
+        return res.status(404).json({ message: "Channel not found" });
+      }
+
+      if (page > 1) {
+        for (var i = 2; i <= page; i++) {
+          try {
+            newVideos = await channel.videos.next(i);
+          } catch (error) {
+            console.error("Error fetching additional videos:", error);
+            return res.status(500).json({ message: "Error fetching additional videos" });
+          }
         }
+      } else {
+        newVideos = await channel.videos.next();
       }
-    } else {
-      channel = await channel.videos.next();
-    }
 
-    if (page > 1 && newVideos.length > 0) {
-      if (page == 2) {
-        newVideos = newVideos?.slice(30, 60);
-      }
-      items = newVideos?.map(function (item) {
-        return {
+      if (newVideos && newVideos.length > 0) {
+        if (page === 2) {
+          newVideos = newVideos.slice(30, 60);
+        }
+        items = newVideos.map(item => ({
           id: item?.id,
           title: item?.title,
           duration: item?.duration,
@@ -37,15 +45,11 @@ export default async function handler(req, res) {
           viewCount: item?.viewCount,
           uploadDate: item?.uploadDate,
           thumbnail: `https://img.youtube.com/vi/${item?.id}/mqdefault.jpg`,
-          channelName: item?.channel.name,
-          channelID: item?.channel.id,
-        };
-      });
-      res.status(200).json(items);
-    } else {
-
-      items = channel?.map(function (item) {
-        return {
+          channelName: item?.channel?.name,
+          channelID: item?.channel?.id,
+        }));
+      } else {
+        items = channel.videos.map(item => ({
           id: item?.id,
           title: item?.title,
           duration: item?.duration,
@@ -54,13 +58,17 @@ export default async function handler(req, res) {
           viewCount: item?.viewCount,
           uploadDate: item?.uploadDate,
           thumbnail: `https://img.youtube.com/vi/${item?.id}/mqdefault.jpg`,
-          channelName: item?.channel.name,
-          channelID: item?.channel.id,
-        };
-      });
-      res.status(200).json(items);
+          channelName: item?.channel?.name,
+          channelID: item?.channel?.id,
+        }));
+      }
+
+      return res.status(200).json(items);
+    } catch (error) {
+      console.error("Error fetching channel data:", error);
+      return res.status(500).json({ message: "Internal Server Error" });
     }
-  }else{
-    res.status(405).end();
+  } else {
+    return res.status(405).end();
   }
 }
