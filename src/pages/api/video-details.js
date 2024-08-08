@@ -11,29 +11,39 @@ export default async function handler(req, res) {
     }
 
     try {
-      const video = await youtube.getVideo(id);
+      console.log("Fetching video with ID:", id);
+      let video;
+      try {
+        video = await youtube.getVideo(id);
+      } catch (videoError) {
+        console.error("Error fetching video:", videoError);
+        return res.status(404).json({ message: "Error fetching video", error: videoError.message });
+      }
 
       if (!video || !video.id) {
         return res.status(404).json({ message: "Video not found or invalid video ID" });
       }
+
+      console.log("Video data:", video);
 
       let transcript = null;
       try {
         transcript = await video.getTranscript();
       } catch (transcriptError) {
         console.error("Error fetching transcript:", transcriptError);
+        // Don't return here, continue with the rest of the video data
       }
 
       const response = {
         id: video.id,
-        channel: {
-          youtube_channel_id: video.channel?.id,
-          name: video.channel?.name,
-          subscriberCount: video.channel?.subscriberCount,
-          thumbnails: video.channel?.thumbnails,
-          videoCount: video.channel?.videoCount,
-          url: video.channel?.url,
-        },
+        channel: video.channel ? {
+          youtube_channel_id: video.channel.id,
+          name: video.channel.name,
+          subscriberCount: video.channel.subscriberCount,
+          thumbnails: video.channel.thumbnails,
+          videoCount: video.channel.videoCount,
+          url: video.channel.url,
+        } : null,
         title: video.title,
         chapters: video.chapters,
         description: video.description,
@@ -47,8 +57,8 @@ export default async function handler(req, res) {
 
       res.status(200).json(response);
     } catch (error) {
-      console.error("Error fetching video data:", error);
-      res.status(500).json({ message: "Internal Server Error" });
+      console.error("Error in handler:", error);
+      res.status(500).json({ message: "Internal Server Error", error: error.message });
     }
   } else {
     res.status(405).end();
