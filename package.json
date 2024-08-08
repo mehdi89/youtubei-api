@@ -9,9 +9,11 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "next": "13.5.6",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "youtubei": "^1.5.4"
+  },
+  "devDependencies": {
+    "next": "13.5.6"
   }
 }
