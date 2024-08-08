@@ -24,7 +24,7 @@ export default async function handler(req, res) {
         console.error("Error fetching transcript:", transcriptError);
       }
 
-      let response = {
+      const response = {
         id: video.id,
         channel: {
           youtube_channel_id: video.channel?.id,
