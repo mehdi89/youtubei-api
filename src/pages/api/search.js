@@ -13,6 +13,8 @@ export default async function handler(req, res) {
     return res.status(401).json({ message: 'Please provide correct API key' }); // Unauthorized
   }
 
+  console.log(`Searching for ${type} with query: ${query}`);
+
   try {
     let items = [];
     let response = await youtube.search(query, { type });

@@ -9,7 +9,7 @@ export default async function handler(req, res) {
     if (apiKey !== 'S#D$FG%^$#DEF%G^*$%R^T&Y*U') {
       return res.status(401).json({ message: 'Please provide correct API key' });
     }
-
+    console.log(`Fetching channel videos with ID: ${id}`);
     try {
       var items = [];
       var newVideos = [];

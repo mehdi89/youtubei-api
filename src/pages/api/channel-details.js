@@ -7,6 +7,9 @@ export default async function handler(req, res) {
     if (apiKey!='S#D$FG%^$#DEF%G^*$%R^T&Y*U') {
         res.status(401).json({message:'Please provide correct api key'});
     }
+    // console.log(`Fetching video with ID: ${id}`);
+    console.log(`Fetching channel with ID: ${id}`);
+    
     var channel = await youtube.getChannel(id);
     // console.log(channel);
     let response={
