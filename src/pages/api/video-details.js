@@ -1,4 +1,4 @@
-import { Client } from "youtubei";
+import youtubei from "@/utils/youtubei";
 
 const API_KEY = "S#D$FG%^$#DEF%G^*$%R^T&Y*U";
 
@@ -17,7 +17,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ message: "Missing video ID" });
   }
 
-  const youtube = new Client();
+  const youtube = youtubei;
 
   try {
     console.log(`Fetching video with ID: ${id}`);

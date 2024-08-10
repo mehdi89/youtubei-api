@@ -1,11 +1,11 @@
-import { Client } from "youtubei";
+import youtubei from "@/utils/youtubei";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).end(); // Method Not Allowed
   }
 
-  const youtube = new Client();
+  const youtube = youtubei;
   const { type, query, page = 1 } = req.body;
   const apiKey = req.headers['api-key'];
 
