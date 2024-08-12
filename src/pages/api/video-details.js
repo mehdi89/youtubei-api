@@ -12,7 +12,7 @@ export default async function handler(req, res) {
     return res.status(401).json({ message: "Invalid API key" });
   }
 
-  const { id, transcript: includeTranscript = false } = req.body;
+  const { id, transcript: includeTranscript = true } = req.body;
   if (!id) {
     return res.status(400).json({ message: "Missing video ID" });
   }
