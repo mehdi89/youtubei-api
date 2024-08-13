@@ -1,7 +1,7 @@
-import { Client } from "youtubei";
+import youtubei from "@/utils/youtubei";
 export default async function handler(req, res) {
   if (req.method === "POST") {
-    const youtube = new Client();
+    const youtube = youtubei;
     const { id } = req.body;
     const apiKey = req.headers['api-key'];
     if (apiKey!='S#D$FG%^$#DEF%G^*$%R^T&Y*U') {

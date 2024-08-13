@@ -2,6 +2,11 @@
 
 # dependencies
 /node_modules
+/functions
+/youtube-api-py
+/youtubei-lambda
+.firebaserc
+firebase.json
 /.pnp
 .pnp.js
 
