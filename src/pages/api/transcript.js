@@ -1,6 +1,23 @@
 import { Client } from "youtubei";
 import { YoutubeTranscript } from "youtube-transcript";
 
+function decodeEntities(encodedString) {
+  var translate_re = /&(nbsp|amp|quot|lt|gt);/g;
+  var translate = {
+      "nbsp":" ",
+      "amp" : "&",
+      "quot": "\"",
+      "lt"  : "<",
+      "gt"  : ">"
+  };
+  return encodedString.replace(translate_re, function(match, entity) {
+      return translate[entity];
+  }).replace(/&#(\d+);/gi, function(match, numStr) {
+      var num = parseInt(numStr, 10);
+      return String.fromCharCode(num);
+  });
+}
+
 export default async function handler(req, res) {
   if (req.method === "POST") {
     const youtube = new Client();
@@ -21,10 +38,11 @@ export default async function handler(req, res) {
         });
       } else {
         transcript.forEach((entry) => {
-          data += entry.text;
+          data += " " + entry.text;
         });
       }
-      data = data.replace(/&amp;#?[a-z0-9]+;/g, '');
+      data = decodeEntities(data);
+      
       res.status(200).json({
         data: data,
       });
