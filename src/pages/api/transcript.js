@@ -24,7 +24,7 @@ export default async function handler(req, res) {
           data += entry.text;
         });
       }
-
+      data = data.replace(/&amp;#?[a-z0-9]+;/g, '');
       res.status(200).json({
         data: data,
       });
