@@ -44,7 +44,7 @@ export default async function handler(req, res) {
           isLive: item?.isLive,
           viewCount: item?.viewCount,
           uploadDate: item?.uploadDate,
-          thumbnail: `https://img.youtube.com/vi/${item?.id}/mqdefault.jpg`,
+          thumbnail: `https://img.youtube.com/vi/${item?.id}/hqdefault.jpg`,
           channelName: item?.channel?.name,
           channelID: item?.channel?.id,
           channelThumbnail: item?.channel?.thumbnails?.[0]?.url,
