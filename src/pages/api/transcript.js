@@ -48,7 +48,7 @@ export default async function handler(req, res) {
       });
     } catch (error) {
       console.error("Error fetching video data:", error);
-      res.status(500).json({ message: "Internal Server Error" });
+      res.status(500).json({ message: error.message });
     }
   } else {
     res.status(405).end();
