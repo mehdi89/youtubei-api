@@ -20,6 +20,21 @@ function decodeEntities(encodedString) {
     });
 }
 
+async function getTranscriptLanguages(videoId) {
+  const youtube = new Client();
+
+  // Fetch video details
+  const video = await youtube.getVideo(videoId);
+
+  // Check if captions are available
+  const availableCaptions = video.captions.languages || [];
+
+  // Extract language list
+  const languages = availableCaptions.map((caption) => caption);
+
+  return languages;
+}
+
 export default async function handler(req, res) {
   if (req.method === 'POST') {
     const youtube = new Client();
@@ -29,9 +44,15 @@ export default async function handler(req, res) {
       res.status(401).json({ message: 'Please provide correct api key' });
     }
 
-    const options = lang ? { lang:lang } : {};
+    const options = lang ? { lang: lang } : {};
 
     try {
+      getTranscriptLanguages(id)
+        .then((languages) =>
+          console.log('Available transcript languages:', languages)
+        )
+        .catch((error) => console.error('Error:', error));
+
       const transcript = await YoutubeTranscript.fetchTranscript(id, options);
 
       var data = '';
