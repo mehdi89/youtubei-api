@@ -12,6 +12,9 @@ services:
       - /app/node_modules
     environment:
       - NODE_ENV=development
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
+    env_file:
+      - .env
     command: npm run dev
 
   test:
@@ -23,6 +26,9 @@ services:
       - /app/node_modules
     environment:
       - NODE_ENV=test
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
+    env_file:
+      - .env
     command: npm run test
 
   prod:
@@ -34,6 +40,9 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=production
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
+    env_file:
+      - .env
     restart: always
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/hello"]

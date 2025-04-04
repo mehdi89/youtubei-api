@@ -1,6 +1,11 @@
 import youtubei from "@/utils/youtubei";
 
-const API_KEY = "S#D$FG%^$#DEF%G^*$%R^T&Y*U";
+// Get API key from environment variables
+const API_KEY = process.env.YOUTUBE_API_KEY;
+
+if (!API_KEY) {
+  console.error("YOUTUBE_API_KEY environment variable is not set!");
+}
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -90,22 +95,33 @@ async function fetchVideo(youtube, id) {
 }
 
 async function fetchTranscript(video) {
-  if (video.isLiveContent) {
-    console.warn(`Live video does not have a transcript: ${video.id}`);
-    return '';
+  // Early returns for cases where transcript is not available
+  if (!video || video.isLiveContent) {
+    console.info(`Transcript not available - Live content: ${video?.id}`);
+    return { available: false, reason: 'live_content' };
   }
 
   if (!video.captions) {
-    console.warn(`Transcript not available for video: ${video.id}`);
-    return '';
+    console.info(`Transcript not available - No captions: ${video?.id}`);
+    return { available: false, reason: 'no_captions' };
   }
 
   try {
     console.info(`Fetching transcript for video: ${video.id}`);
-    return await video.captions.get();
+    const transcript = await video.captions.get();
+    return { available: true, content: transcript };
   } catch (error) {
-    console.error("Error fetching transcript:", error);
-    return '';
+    // Log but don't treat as error - transcript unavailability is an expected state
+    if (error.message?.includes('Transcript is disabled') || 
+        error.message?.includes('Cannot read properties') ||
+        error.name === 'YoutubeTranscriptDisabledError') {
+      console.info(`Transcript not available - Disabled: ${video.id}`);
+      return { available: false, reason: 'disabled' };
+    }
+
+    // For unexpected errors, log but don't throw
+    console.warn(`Unexpected error fetching transcript for ${video.id}:`, error.message);
+    return { available: false, reason: 'error', error: error.message };
   }
 }
 
@@ -131,7 +147,11 @@ function formatResponse(video, transcript, includeTranscript) {
   };
 
   if (includeTranscript) {
-    response.transcript = transcript;
+    response.transcript = transcript.available ? transcript.content : null;
+    response.transcript_status = {
+      available: transcript.available,
+      reason: transcript.reason
+    };
   }
 
   return response;
