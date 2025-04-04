@@ -1,50 +1,39 @@
-import { Client } from 'youtubei';
+import { YoutubeTranscript } from "youtube-transcript";
+import logger from "@/utils/logger";
 
 export default async function handler(req, res) {
-  if (req.method === 'GET') {
-    const youtube = new Client();
-    const id = req.query.id;
-    const apiKey = req.headers['api-key'];
-    if (apiKey != 'S#D$FG%^$#DEF%G^*$%R^T&Y*U') {
-      res.status(401).json({ message: 'Please provide correct api key' });
+  if (req.method !== "POST") {
+    logger.error("Method not allowed", `Method: ${req.method}`);
+    return res.status(405).end();
+  }
+
+  const { id } = req.body;
+  const apiKey = req.headers['api-key'];
+
+  if (apiKey !== process.env.YOUTUBE_API_KEY) {
+    logger.error("Invalid API key");
+    return res.status(401).json({ message: 'Please provide correct API key' });
+  }
+
+  if (!id) {
+    logger.error("Missing video ID");
+    return res.status(400).json({ message: 'Video ID is required' });
+  }
+
+  logger.fetch(`Fetching available languages`, `Video: ${id}`);
+
+  try {
+    const languages = await YoutubeTranscript.listLanguages(id);
+
+    if (!languages || languages.length === 0) {
+      logger.warn("No languages available", `Video: ${id}`);
+      return res.status(404).json({ message: "No languages available for this video" });
     }
 
-    try {
-      // Fetch video details
-      const video = await youtube.getVideo(id);
-
-      // Check if captions are available
-      const availableCaptions = video.captions.languages || [];
-      if (availableCaptions.length == 0) {
-        res.status(200).json({
-          message: 'No language available',
-          data: [],
-        });
-        return;
-      }
-
-      // Extract language list
-      const languages = availableCaptions.map((caption) => {
-        return {
-          name: caption.name,
-          code: caption.code,
-          isTranslatable: caption.isTranslatable,
-          url: caption.url,
-        };
-      });
-
-      res.status(200).json({
-        message: 'Language fetched successfully',
-        data: languages,
-      });
-    } catch (error) {
-      console.error('Error fetching video data:', error);
-      res.status(500).json({
-        message: error.message,
-        data: [],
-      });
-    }
-  } else {
-    res.status(405).end();
+    logger.success(`Found ${languages.length} languages`, `Video: ${id}`);
+    return res.status(200).json(languages);
+  } catch (error) {
+    logger.error(`Failed to fetch languages`, `Video: ${id} | Error: ${error.message}`);
+    return res.status(500).json({ message: "Internal Server Error" });
   }
 }

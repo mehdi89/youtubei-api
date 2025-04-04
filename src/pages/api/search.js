@@ -1,19 +1,22 @@
 import youtubei from "@/utils/youtubei";
+import logger from "@/utils/logger";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
-    return res.status(405).end(); // Method Not Allowed
+    logger.error("Method not allowed", `Method: ${req.method}`);
+    return res.status(405).end();
   }
 
   const youtube = youtubei;
   const { type, query, page = 1 } = req.body;
   const apiKey = req.headers['api-key'];
 
-  if (apiKey !== 'S#D$FG%^$#DEF%G^*$%R^T&Y*U') {
-    return res.status(401).json({ message: 'Please provide correct API key' }); // Unauthorized
+  if (apiKey !== process.env.YOUTUBE_API_KEY) {
+    logger.error("Invalid API key");
+    return res.status(401).json({ message: 'Please provide correct API key' });
   }
 
-  console.log(`Searching for ${type} with query: ${query}`);
+  logger.fetch(`Searching ${type}`, `Query: "${query}" | Page: ${page}`);
 
   try {
     let items = [];
@@ -21,16 +24,18 @@ export default async function handler(req, res) {
     let nextResponse;
 
     if (!response || !response.items || response.items.length === 0) {
-      return res.status(404).json({ message: 'No results found' }); // Not Found
+      logger.info("No results found", `Type: ${type} | Query: "${query}"`);
+      return res.status(404).json({ message: 'No results found' });
     }
 
     if (page > 1) {
       for (let i = 2; i <= page; i++) {
+        logger.fetch(`Loading page ${i}`, `Type: ${type} | Query: "${query}"`);
         nextResponse = await response.next();
         if (!nextResponse || !nextResponse.items || nextResponse.items.length === 0) {
           break;
         }
-        response.items = nextResponse.items; // Update with the latest items
+        response.items = nextResponse.items;
       }
     }
 
@@ -75,12 +80,14 @@ export default async function handler(req, res) {
         break;
 
       default:
-        return res.status(400).json({ message: 'Invalid search type' }); // Bad Request
+        logger.error("Invalid search type", `Type: ${type}`);
+        return res.status(400).json({ message: 'Invalid search type' });
     }
 
+    logger.success(`Found ${items.length} ${type}s`, `Query: "${query}" | Page: ${page}`);
     res.status(200).json(items);
   } catch (error) {
-    console.error("Error fetching data:", error);
-    res.status(500).json({ message: "Internal Server Error" }); // Internal Server Error
+    logger.error("Search failed", `Error: ${error.message}`);
+    res.status(500).json({ message: "Internal Server Error" });
   }
 }

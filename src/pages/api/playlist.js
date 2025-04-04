@@ -1,70 +1,87 @@
 import youtubei from "@/utils/youtubei";
+import logger from "@/utils/logger";
+
 export default async function handler(req, res) {
-  if (req.method === "POST") {
-    const youtube = youtubei;
-    const { id, page } = req.body;
-    const apiKey = req.headers['api-key'];
-    if (apiKey!='S#D$FG%^$#DEF%G^*$%R^T&Y*U') {
-        res.status(401).json({message:'Please provide correct api key'});
+  if (req.method !== "POST") {
+    logger.error("Method not allowed", `Method: ${req.method}`);
+    return res.status(405).end();
+  }
+
+  const youtube = youtubei;
+  const { id, page } = req.body;
+  const apiKey = req.headers['api-key'];
+
+  if (apiKey !== process.env.YOUTUBE_API_KEY) {
+    logger.error("Invalid API key");
+    return res.status(401).json({ message: 'Please provide correct API key' });
+  }
+
+  if (!id) {
+    logger.error("Missing playlist ID");
+    return res.status(400).json({ message: 'Playlist ID is required' });
+  }
+
+  logger.fetch(`Fetching playlist videos`, `Playlist: ${id} | Page: ${page}`);
+
+  try {
+    let items = [];
+    let newVideos = [];
+    const playlist = await youtube.findOne(id, { type: "playlist" });
+
+    if (!playlist) {
+      logger.error("Playlist not found", `ID: ${id}`);
+      return res.status(404).json({ message: "Playlist not found" });
     }
-    console.log(`Fetching playlist videos with ID: ${id}`);
-    var items = {};
-    var newVideos = {};
-    var playlist = await youtube.getPlaylist(id);
+
     if (page > 1) {
-      for (var i = 2; i <= page; i++) {
+      for (let i = 2; i <= page; i++) {
         try {
+          logger.fetch(`Loading page ${i}`, `Playlist: ${id}`);
           newVideos = await playlist.videos.next(i);
-          console.log(newVideos);
         } catch (error) {
-          res.status(200).json(newVideos);
+          logger.warn(`Failed to load page ${i}`, `Playlist: ${id} | Error: ${error.message}`);
+          return res.status(200).json(newVideos);
         }
       }
-    }
-
-    if (page > 1) {
-        if (newVideos.length > 0) {
-            items = newVideos?.map(function (item) {
-                return {
-                  id: item?.id,
-                  title: item?.title,
-                  duration: item?.duration,
-                  description: item?.description,
-                  isLive: item?.isLive,
-                  viewCount: item?.viewCount,
-                  uploadDate: item?.uploadDate,
-                  thumbnail: `https://img.youtube.com/vi/${item?.id}/hqdefault.jpg`,
-                  channelName: item?.channel.name,
-                  channelID: item?.channel.id,
-                };
-              });
-        }else{
-            items=[];
-        }
-    //   if (page == 2) {
-    //     newVideos = newVideos?.slice(30, 60);
-    //   }
-      
-      res.status(200).json(items);
     } else {
-
-      items = playlist?.videos?.items?.map(function (item) {
-        return {
-          id: item?.id,
-          title: item?.title,
-          duration: item?.duration,
-          description: item?.description,
-          isLive: item?.isLive,
-          viewCount: item?.viewCount,
-          uploadDate: item?.uploadDate,
-          thumbnail: `https://img.youtube.com/vi/${item?.id}/hqdefault.jpg`,
-          channelName: item?.channel.name,
-          channelID: item?.channel.id,
-        };
-      });
-      res.status(200).json(items);
+      newVideos = await playlist.videos.next();
     }
-  }else{
-    res.status(405).end();
+
+    if (newVideos && newVideos.length > 0) {
+      if (page === 2) {
+        newVideos = newVideos.slice(30, 60);
+      }
+      items = newVideos.map(item => ({
+        id: item?.id,
+        title: item?.title,
+        duration: item?.duration,
+        description: item?.description,
+        isLive: item?.isLive,
+        viewCount: item?.viewCount,
+        uploadDate: item?.uploadDate,
+        thumbnail: `https://img.youtube.com/vi/${item?.id}/hqdefault.jpg`,
+        channelName: item?.channel?.name,
+        channelID: item?.channel?.id,
+      }));
+    } else {
+      items = playlist.videos.map(item => ({
+        id: item?.id,
+        title: item?.title,
+        duration: item?.duration,
+        description: item?.description,
+        isLive: item?.isLive,
+        viewCount: item?.viewCount,
+        uploadDate: item?.uploadDate,
+        thumbnail: `https://img.youtube.com/vi/${item?.id}/hqdefault.jpg`,
+        channelName: item?.channel?.name,
+        channelID: item?.channel?.id,
+      }));
+    }
+
+    logger.success(`Found ${items.length} videos`, `Playlist: ${id} | Page: ${page}`);
+    return res.status(200).json(items);
+  } catch (error) {
+    logger.error(`Failed to fetch playlist videos`, `Playlist: ${id} | Error: ${error.message}`);
+    return res.status(500).json({ message: "Internal Server Error" });
   }
 }
