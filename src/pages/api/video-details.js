@@ -39,13 +39,29 @@ export default async function handler(req, res) {
 
 async function fetchVideo(youtube, id) {
   try {
-    const video = await youtube.getVideo(id);
-    if (!video || !video.id) {
-      throw new CustomError("Video not found or invalid video ID", 404);
+    if (!id) {
+      throw new CustomError("Video ID is required", 400);
     }
+
+    console.log(`Attempting to fetch video with ID: ${id}`);
+    const video = await youtube.getVideo(id);
+    
+    if (!video) {
+      throw new CustomError("Video not found", 404);
+    }
+
+    if (!video.id) {
+      console.error("Video object is missing ID property:", video);
+      throw new CustomError("Invalid video data received", 500);
+    }
+
     return video;
   } catch (error) {
-    throw new CustomError(`Error fetching video: ${error.message}`, 404);
+    console.error("Error in fetchVideo:", error);
+    if (error instanceof CustomError) {
+      throw error;
+    }
+    throw new CustomError(`Error fetching video: ${error.message}`, error.statusCode || 500);
   }
 }
 
