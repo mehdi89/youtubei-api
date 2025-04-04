@@ -23,4 +23,14 @@ services:
       - /app/node_modules
     environment:
       - NODE_ENV=test
-    command: npm run test 
+    command: npm run test
+
+  prod:
+    build:
+      context: .
+      target: prod
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped 
