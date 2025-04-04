@@ -1,0 +1,237 @@
+{
+  "info": {
+    "name": "YouTube API Collection",
+    "description": "Collection of YouTube API endpoints for video, channel, and playlist data",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Search",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "api-key",
+            "value": "S#D$FG%^$#DEF%G^*$%R^T&Y*U",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"type\": \"video\",\n    \"query\": \"programming tutorials\",\n    \"page\": 1\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/search",
+          "host": ["{{base_url}}"],
+          "path": ["api", "search"]
+        },
+        "description": "Search for videos, channels, or playlists"
+      }
+    },
+    {
+      "name": "Video Details",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "api-key",
+            "value": "S#D$FG%^$#DEF%G^*$%R^T&Y*U",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"id\": \"video_id_here\",\n    \"transcript\": true\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/video-details",
+          "host": ["{{base_url}}"],
+          "path": ["api", "video-details"]
+        },
+        "description": "Get detailed information about a specific video"
+      }
+    },
+    {
+      "name": "Channel Videos",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "api-key",
+            "value": "S#D$FG%^$#DEF%G^*$%R^T&Y*U",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"id\": \"channel_id_here\",\n    \"page\": 1\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/channel-videos",
+          "host": ["{{base_url}}"],
+          "path": ["api", "channel-videos"]
+        },
+        "description": "Get videos from a specific channel"
+      }
+    },
+    {
+      "name": "Channel Live Videos",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "api-key",
+            "value": "S#D$FG%^$#DEF%G^*$%R^T&Y*U",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"id\": \"channel_id_here\",\n    \"page\": 1\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/channel-live-videos",
+          "host": ["{{base_url}}"],
+          "path": ["api", "channel-live-videos"]
+        },
+        "description": "Get live videos from a specific channel"
+      }
+    },
+    {
+      "name": "Playlist Videos",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "api-key",
+            "value": "S#D$FG%^$#DEF%G^*$%R^T&Y*U",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"id\": \"playlist_id_here\",\n    \"page\": 1\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/playlist",
+          "host": ["{{base_url}}"],
+          "path": ["api", "playlist"]
+        },
+        "description": "Get videos from a specific playlist"
+      }
+    },
+    {
+      "name": "Video Transcript",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "api-key",
+            "value": "S#D$FG%^$#DEF%G^*$%R^T&Y*U",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"id\": \"video_id_here\",\n    \"type\": \"timestamped\",\n    \"lang\": \"en\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/transcript",
+          "host": ["{{base_url}}"],
+          "path": ["api", "transcript"]
+        },
+        "description": "Get video transcript with optional language and timestamp format"
+      }
+    },
+    {
+      "name": "Channel Details",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "api-key",
+            "value": "S#D$FG%^$#DEF%G^*$%R^T&Y*U",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"id\": \"channel_id_here\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/channel-details",
+          "host": ["{{base_url}}"],
+          "path": ["api", "channel-details"]
+        },
+        "description": "Get detailed information about a specific channel"
+      }
+    },
+    {
+      "name": "Video Languages",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "api-key",
+            "value": "S#D$FG%^$#DEF%G^*$%R^T&Y*U",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/video-languages?id=video_id_here",
+          "host": ["{{base_url}}"],
+          "path": ["api", "video-languages"],
+          "query": [
+            {
+              "key": "id",
+              "value": "video_id_here"
+            }
+          ]
+        },
+        "description": "Get available language options for a video"
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    }
+  ]
+} 
