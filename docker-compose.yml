@@ -29,8 +29,28 @@ services:
     build:
       context: .
       target: prod
+    container_name: youtubei-api-prod
     ports:
       - "3000:3000"
     environment:
       - NODE_ENV=production
-    restart: unless-stopped 
+    restart: always
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/hello"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 512M 
