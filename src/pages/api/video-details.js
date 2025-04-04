@@ -44,24 +44,48 @@ async function fetchVideo(youtube, id) {
     }
 
     console.log(`Attempting to fetch video with ID: ${id}`);
-    const video = await youtube.getVideo(id);
     
-    if (!video) {
-      throw new CustomError("Video not found", 404);
-    }
+    try {
+      const video = await youtube.getVideo(id);
+      
+      if (!video) {
+        console.error(`Video not found for ID: ${id}`);
+        throw new CustomError("Video not found or may have been removed", 404);
+      }
 
-    if (!video.id) {
-      console.error("Video object is missing ID property:", video);
-      throw new CustomError("Invalid video data received", 500);
-    }
+      if (!video.id) {
+        console.error("Received invalid video data:", JSON.stringify(video, null, 2));
+        throw new CustomError("Unable to access video data - this may be due to regional restrictions or YouTube's security measures", 403);
+      }
 
-    return video;
+      return video;
+    } catch (error) {
+      // Handle specific error cases
+      if (error.message?.includes('videoId')) {
+        console.error(`YouTube API access error for video ${id}:`, error.message);
+        throw new CustomError("Unable to access YouTube data. This could be due to API restrictions or rate limiting.", 429);
+      }
+      
+      if (error.message?.includes('network') || error.message?.includes('timeout')) {
+        console.error(`Network error while fetching video ${id}:`, error.message);
+        throw new CustomError("Network error while accessing YouTube. Please try again later.", 503);
+      }
+
+      // If it's already our custom error, just rethrow it
+      if (error instanceof CustomError) {
+        throw error;
+      }
+
+      // For any other unexpected errors
+      console.error(`Unexpected error while fetching video ${id}:`, error);
+      throw new CustomError("An unexpected error occurred while fetching the video", 500);
+    }
   } catch (error) {
-    console.error("Error in fetchVideo:", error);
+    // Ensure we always return a proper error response
     if (error instanceof CustomError) {
       throw error;
     }
-    throw new CustomError(`Error fetching video: ${error.message}`, error.statusCode || 500);
+    throw new CustomError(error.message || "Failed to fetch video", error.statusCode || 500);
   }
 }
 

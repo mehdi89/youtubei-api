@@ -1,31 +1,31 @@
 #!/bin/bash
 
-echo "🚀 Starting Docker deployment..."
+# echo "🚀 Starting Docker deployment..."
 
-# Pull the latest changes
-echo "📥 Pulling latest changes..."
-git pull
+# # Pull the latest changes
+# echo "📥 Pulling latest changes..."
+# git pull
 
 # Build the new production image
 echo "🔨 Building new production image..."
-docker-compose build prod
+docker compose build prod
 
 # Check if the container is running
 if [ "$(docker ps -q -f name=youtubei-api-prod)" ]; then
     echo "🛑 Stopping existing container..."
-    docker-compose stop prod
+    docker compose stop prod
     
     echo "🗑️ Removing old container..."
-    docker-compose rm -f prod
+    docker compose rm -f prod
 fi
 
 # Start the new container
 echo "▶️ Starting new container..."
-docker-compose up -d prod
+docker compose up -d prod
 
 # Follow the logs for 10 seconds to check for startup issues
 echo "📋 Checking logs for startup issues..."
-timeout 10 docker-compose logs -f prod || true
+timeout 10 docker compose logs -f prod || true
 
 # Check container health
 echo "🏥 Checking container health..."
@@ -36,7 +36,7 @@ if [ "$HEALTH_STATUS" = "healthy" ]; then
     echo "✅ Deployment completed successfully! Container is healthy."
 else
     echo "⚠️ Container is in $HEALTH_STATUS state. You may want to check the logs:"
-    echo "    docker-compose logs prod"
+    echo "    docker compose logs prod"
 fi
 
 # Print container information
