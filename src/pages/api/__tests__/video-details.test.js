@@ -3,7 +3,7 @@ import videoDetailsHandler from '../video-details'
 import youtubei from '@/utils/youtubei'
 
 describe('Video Details API', () => {
-  const API_KEY = 'S#D$FG%^$#DEF%G^*$%R^T&Y*U'
+  const API_KEY = process.env.YOUTUBE_API_KEY;
 
   beforeEach(() => {
     jest.clearAllMocks()
