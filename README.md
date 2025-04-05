@@ -1,211 +1,236 @@
-# YouTube API Service
+# YouTubei API
 
-A Next.js based API service that provides endpoints for fetching YouTube data including video details, channel information, playlists, and transcripts.
+A powerful and efficient YouTube data API built with Next.js that provides access to video details, transcripts, channel information, and search functionality.
 
 ## Features
 
-- Search videos, channels, and playlists
-- Get video details with transcripts
-- Fetch channel information and videos
-- Get playlist contents
-- Live video support
-- Video transcript and language support
+- 🎥 Video Details & Transcripts
+- 📺 Channel Information
+- 🔍 Search (Videos, Channels, Playlists)
+- 📝 Multi-language Transcript Support
+- 🔴 Live Stream Detection
+- 📋 Playlist Information
+- 🌐 Cross-Origin Support
+- 📊 Detailed Response Format
 
-## API Endpoints
+## Getting Started
 
-All endpoints require an API key in the header: `api-key: S#D$FG%^$#DEF%G^*$%R^T&Y*U`
+### Prerequisites
 
-### Search
-```http
-POST /api/search
-Content-Type: application/json
-api-key: S#D$FG%^$#DEF%G^*$%R^T&Y*U
+- Node.js 16.x or higher
+- Docker (optional, for containerized deployment)
 
-{
-    "type": "video|channel|playlist",
-    "query": "search term",
-    "page": 1
-}
+### Environment Setup
+
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/youtubei-api.git
+cd youtubei-api
 ```
 
-### Video Details
-```http
-POST /api/video-details
-Content-Type: application/json
-api-key: S#D$FG%^$#DEF%G^*$%R^T&Y*U
-
-{
-    "id": "video_id",
-    "transcript": true
-}
-```
-
-### Channel Videos
-```http
-POST /api/channel-videos
-Content-Type: application/json
-api-key: S#D$FG%^$#DEF%G^*$%R^T&Y*U
-
-{
-    "id": "channel_id",
-    "page": 1
-}
-```
-
-### Channel Live Videos
-```http
-POST /api/channel-live-videos
-Content-Type: application/json
-api-key: S#D$FG%^$#DEF%G^*$%R^T&Y*U
-
-{
-    "id": "channel_id",
-    "page": 1
-}
-```
-
-### Playlist Videos
-```http
-POST /api/playlist
-Content-Type: application/json
-api-key: S#D$FG%^$#DEF%G^*$%R^T&Y*U
-
-{
-    "id": "playlist_id",
-    "page": 1
-}
-```
-
-### Video Transcript
-```http
-POST /api/transcript
-Content-Type: application/json
-api-key: S#D$FG%^$#DEF%G^*$%R^T&Y*U
-
-{
-    "id": "video_id",
-    "type": "timestamped",
-    "lang": "en"
-}
-```
-
-### Channel Details
-```http
-POST /api/channel-details
-Content-Type: application/json
-api-key: S#D$FG%^$#DEF%G^*$%R^T&Y*U
-
-{
-    "id": "channel_id"
-}
-```
-
-### Video Languages
-```http
-GET /api/video-languages?id=video_id
-api-key: S#D$FG%^$#DEF%G^*$%R^T&Y*U
-```
-
-## Development Setup
-
-1. Clone the repository
 2. Install dependencies:
 ```bash
 npm install
 ```
 
-3. Run development server:
-```bash
-docker-compose up app
+3. Create a `.env` file in the root directory:
+```env
+YOUTUBE_API_KEY=your_api_key_here
 ```
 
-4. Run tests:
+### Development
+
+Run the development server:
 ```bash
-docker-compose run test
+npm run dev
 ```
 
-## Production Deployment
+### Production Deployment
 
-The application is containerized and can be deployed using Docker.
-
-### Using Docker Compose (Recommended)
-
-1. Build and start the production server:
+Using Docker:
 ```bash
-docker-compose up -d prod
+docker compose up -d prod
 ```
 
-2. The server will:
-   - Run on port 3000
-   - Automatically restart on failures
-   - Include health monitoring
-   - Rotate logs
-   - Manage resource usage
+## API Endpoints
 
-### Manual Docker Deployment
+All endpoints require a valid API key passed in the headers as `api-key`.
 
-1. Build the production image:
-```bash
-docker build --target prod -t youtubei-api:prod .
+### Video Details
+
+`POST /api/video-details`
+```json
+{
+  "id": "video_id",
+  "transcript": true
+}
 ```
 
-2. Run the container:
-```bash
-docker run -d -p 3000:3000 -e NODE_ENV=production youtubei-api:prod
+### Search
+
+`POST /api/search`
+```json
+{
+  "type": "video|channel|playlist",
+  "query": "search term",
+  "page": 1
+}
 ```
 
-## Container Management
+### Channel Videos
 
-### View Logs
-```bash
-docker-compose logs -f prod
+`POST /api/channel-videos`
+```json
+{
+  "id": "channel_id",
+  "page": 1
+}
 ```
 
-### Check Status
-```bash
-docker-compose ps
+### Channel Live Videos
+
+`POST /api/channel-live-videos`
+```json
+{
+  "id": "channel_id"
+}
 ```
 
-### Stop Server
-```bash
-docker-compose stop prod
+### Channel Details
+
+`POST /api/channel-details`
+```json
+{
+  "id": "channel_id"
+}
 ```
 
-### Restart Server
-```bash
-docker-compose restart prod
+### Playlist Videos
+
+`POST /api/playlist`
+```json
+{
+  "id": "playlist_id",
+  "page": 1
+}
 ```
 
-### Check Container Health
-```bash
-docker inspect --format='{{json .State.Health}}' youtubei-api-prod
+### Video Transcripts
+
+`POST /api/transcript`
+```json
+{
+  "id": "video_id",
+  "type": "timestamped",
+  "lang": "en"
+}
 ```
 
-### Monitor Resource Usage
-```bash
-docker stats youtubei-api-prod
+### Video Languages
+
+`POST /api/video-languages`
+```json
+{
+  "id": "video_id"
+}
 ```
 
-## Configuration
+## Response Formats
 
-The production environment includes:
-
-- Automatic restart policy
-- Health checks every 30 seconds
-- Resource limits:
-  - CPU: max 1 core, min 0.25 core
-  - Memory: max 1GB, min 512MB
-- Log rotation:
-  - Maximum 10MB per file
-  - Keeps last 3 log files
-
-## Testing
-
-Run the test suite:
-```bash
-docker-compose run test
+### Video Response
+```json
+{
+  "id": "video_id",
+  "title": "Video Title",
+  "duration": "10:00",
+  "description": "Video description",
+  "isLive": false,
+  "viewCount": 1000,
+  "uploadDate": "2024-01-01",
+  "thumbnail": "thumbnail_url",
+  "channelName": "Channel Name",
+  "channelID": "channel_id",
+  "transcript": {
+    "available": true,
+    "content": "transcript text",
+    "reason": null
+  }
+}
 ```
+
+### Channel Response
+```json
+{
+  "id": "channel_id",
+  "name": "Channel Name",
+  "description": "Channel description",
+  "isVerified": true,
+  "subscriberCount": 1000000,
+  "thumbnail": "thumbnail_url",
+  "banner": "banner_url",
+  "joinedDate": "2020-01-01",
+  "location": "US",
+  "videosCount": 100,
+  "viewCount": 1000000
+}
+```
+
+## Error Handling
+
+The API uses standard HTTP status codes:
+
+- 200: Success
+- 400: Bad Request
+- 401: Unauthorized (Invalid API key)
+- 404: Not Found
+- 405: Method Not Allowed
+- 500: Internal Server Error
+
+Error responses include a message:
+```json
+{
+  "message": "Error description"
+}
+```
+
+## Logging System
+
+The API includes a comprehensive logging system with visual indicators:
+
+- ✅ Success operations
+- ❌ Error messages
+- ⚠️ Warning notifications
+- ℹ️ Information logs
+- 🔄 Fetch operations
+
+Logs include timestamps and contextual information for easy debugging.
+
+## Docker Support
+
+The project includes Docker configuration for development, testing, and production environments. Use the provided `docker-compose.yml` and `docker-deploy.sh` for deployment.
+
+### Docker Commands
+
+Build and run production:
+```bash
+docker compose build prod
+docker compose up -d prod
+```
+
+Check container health:
+```bash
+docker compose ps
+docker compose logs prod
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
 
 ## License
 
-MIT
+This project is licensed under the MIT License - see the LICENSE file for details.
