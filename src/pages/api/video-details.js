@@ -1,5 +1,6 @@
 import youtubei from "@/utils/youtubei";
 import logger from "@/utils/logger";
+import { YoutubeTranscript } from 'youtube-transcript';
 
 // Get API key from environment variables
 const API_KEY = process.env.YOUTUBE_API_KEY;
@@ -91,6 +92,19 @@ async function fetchVideo(youtube, id) {
   }
 }
 
+async function tryGetTranscriptWithYoutubeTranscript(videoId) {
+  try {
+    const transcript = await YoutubeTranscript.fetchTranscript(videoId);
+    let text = '';
+    transcript.forEach((entry) => {
+      text += ' ' + entry.text;
+    });
+    return { success: true, content: text };
+  } catch (error) {
+    return { success: false, error };
+  }
+}
+
 async function fetchTranscript(video) {
   if (!video || video.isLiveContent) {
     logger.info(`No transcript - Live content`, `Video: ${video?.id}`);
@@ -104,8 +118,17 @@ async function fetchTranscript(video) {
 
   try {
     logger.fetch(`Transcript for ${video.id}`);
+    
+    // First try with YoutubeTranscript
+    const ytTranscriptResult = await tryGetTranscriptWithYoutubeTranscript(video.id);
+    if (ytTranscriptResult.success) {
+      logger.success(`Got transcript for ${video.id} using YoutubeTranscript`);
+      return { available: true, content: ytTranscriptResult.content };
+    }
+
+    // Fallback to video.captions.get()
     const transcript = await video.captions.get();
-    logger.success(`Got transcript for ${video.id}`);
+    logger.success(`Got transcript for ${video.id} using captions.get()`);
     return { available: true, content: transcript };
   } catch (error) {
     if (error.message?.includes('Transcript is disabled') || 
