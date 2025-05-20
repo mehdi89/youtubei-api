@@ -47,7 +47,7 @@ export default async function handler(req, res) {
     return res.status(405).end();
   }
 
-  const { id, type, lang } = req.body;
+  const { id, type } = req.body;
   const apiKey = req.headers['api-key'];
 
   if (apiKey !== process.env.YOUTUBE_API_KEY) {
@@ -60,18 +60,56 @@ export default async function handler(req, res) {
     return res.status(400).json({ message: 'Video ID is required' });
   }
 
-  const options = lang ? { lang: lang } : {};
-  logger.fetch(`Fetching transcript`, `Video: ${id}${lang ? ` | Language: ${lang}` : ''}`);
+  // High-confidence languages for OpenAI extraction
+  const highConfidenceLangs = ['en', 'es', 'fr', 'de', 'it', 'pt', 'nl', 'sv', 'da', 'fi', 'no'];
+
+  let selectedLang = null;
+  let availableLangCodes = [];
+  let availableLanguages = [];
 
   try {
     // Get available languages first
-    const languages = await getTranscriptLanguages(id);
-    if (languages.length > 0) {
-      logger.info(`Available languages`, `Count: ${languages.length}`);
+    availableLanguages = await getTranscriptLanguages(id);
+    if (availableLanguages.length > 0) {
+      logger.info(`Available languages`, `Count: ${availableLanguages.length}`);
+      // Try to extract language codes (support both string and object)
+      availableLangCodes = availableLanguages.map(l => {
+        if (typeof l === 'string') return l;
+        if (l.languageCode) return l.languageCode;
+        if (l.lang) return l.lang;
+        if (l.code) return l.code;
+        logger.warn(`Unexpected language format`, `Language: ${JSON.stringify(l)}`);
+        return null;
+      }).filter(Boolean); // Remove any null values
+
+      logger.info(`Extracted language codes`, `Codes: ${availableLangCodes.join(', ')}`);
+      
+      // 1. Prefer English
+      if (availableLangCodes.includes('en')) {
+        selectedLang = 'en';
+      } else {
+        // 2. Try high-confidence languages
+        const found = highConfidenceLangs.find(code => availableLangCodes.includes(code));
+        if (found) {
+          selectedLang = found;
+        } else if (availableLangCodes.length === 1) {
+          // 3. Only one language, use it
+          selectedLang = availableLangCodes[0];
+        } else if (availableLangCodes.length > 1) {
+          // 4. Fallback: use the first available
+          selectedLang = availableLangCodes[0];
+        }
+      }
+      
+      logger.info(`Selected language`, `Language: ${selectedLang}`);
     }
+
+    const options = selectedLang ? { lang: selectedLang } : {};
+    logger.fetch(`Fetching transcript`, `Video: ${id}${selectedLang ? ` | Language: ${selectedLang}` : ''}`);
 
     // Fetch transcript
     const transcript = await YoutubeTranscript.fetchTranscript(id, options);
+    logger.info(`Raw transcript data`, `Length: ${transcript.length} entries`);
     
     let data = '';
     if (type === 'timestamped') {
