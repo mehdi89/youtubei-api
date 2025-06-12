@@ -1,6 +1,7 @@
 import youtubei from "@/utils/youtubei";
 import logger from "@/utils/logger";
-import { YoutubeTranscript } from 'youtube-transcript';
+import { YoutubeTranscript } from '@/utils/youtube-transcript/dist/youtube-transcript.common.js';
+
 
 // Get API key from environment variables
 const API_KEY = process.env.YOUTUBE_API_KEY;
