@@ -20,11 +20,14 @@ CMD ["npm", "run", "test"]
 FROM base AS builder
 RUN npm install
 COPY . .
+RUN cd src/utils/youtube-transcript && npm install && npm run build
 RUN npm run build
 
 # Production stage
 FROM base AS prod
 RUN apk add --no-cache wget
+COPY . .
+COPY --from=builder /app/src/utils/youtube-transcript/dist ./src/utils/youtube-transcript/dist
 RUN npm install --production
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
