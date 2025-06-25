@@ -1,6 +1,6 @@
 import youtubei from "@/utils/youtubei";
 import logger from "@/utils/logger";
-import { YoutubeTranscript } from 'youtube-transcript';
+import { YoutubeTranscript } from '@/utils/youtube-transcript/dist/youtube-transcript.common.js';
 import { Client } from 'youtubei';
 
 
