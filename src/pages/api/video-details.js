@@ -1,4 +1,3 @@
-import youtubei from "@/utils/youtubei";
 import logger from "@/utils/logger";
 import { YoutubeTranscript } from '@/utils/youtube-transcript/dist/youtube-transcript.common.js';
 import { Client } from 'youtubei';
@@ -70,11 +69,9 @@ export default async function handler(req, res) {
     return res.status(400).json({ message: "Missing video ID" });
   }
 
-  const youtube = youtubei;
-
   try {
     logger.fetch(`Video ${id}`);
-    const video = await fetchVideo(youtube, id);
+    const video = await fetchVideo(null, id);
     
     let transcript = '';
     let timestampedTranscript = null;
@@ -104,14 +101,19 @@ export default async function handler(req, res) {
   }
 }
 
-async function fetchVideo(youtube, id) {
+async function fetchVideo(_, id) {
   try {
     if (!id) {
       throw new CustomError("Video ID is required", 400);
     }
 
     try {
-      const video = await youtube.getVideo(id);
+      // Create a fresh client instance for each request to avoid state issues
+      const { Client } = require('youtubei');
+      const freshClient = new Client();
+      
+      logger.fetch(`Fetching video with fresh client`, `Video: ${id}`);
+      const video = await freshClient.getVideo(id);
       
       if (!video) {
         logger.error(`Video not found: ${id}`);
@@ -126,7 +128,7 @@ async function fetchVideo(youtube, id) {
       return video;
     } catch (error) {
       // Handle specific error cases
-      if (error.message?.includes('videoId')) {
+      if (error.message?.includes('videoId') || error.message?.includes('Cannot read properties')) {
         logger.error(`API access error for ${id}`, error.message);
         throw new CustomError("Unable to access YouTube data. This could be due to API restrictions or rate limiting.", 429);
       }
@@ -335,18 +337,6 @@ function formatResponse(video, transcript, timestampedTranscript, includeTranscr
   return response;
 }
 
-function formatTimestampedTranscript(rawTimestampedString) {
-  // Split the string at each "time :" occurrence (except the first one)
-  const parts = rawTimestampedString.split(/(?=time\s*:\s*\d+)/);
-  
-  // Filter out empty parts and clean up
-  const cleanParts = parts
-    .filter(part => part.trim().length > 0)
-    .map(part => part.trim());
-  
-  // Join with line breaks
-  return cleanParts.join('\n');
-}
 
 class CustomError extends Error {
   constructor(message, statusCode) {
