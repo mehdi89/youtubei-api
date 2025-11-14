@@ -28,7 +28,8 @@ export default async function handler(req, res) {
     let newVideos = [];
     let channel = await youtube.findOne(id, { type: "channel" });
 
-    if (!channel) {
+    // Check for error response from yt-dlp wrapper
+    if (!channel || channel.error) {
       logger.error("Channel not found", `ID: ${id}`);
       return res.status(404).json({ message: "Channel not found" });
     }
@@ -64,7 +65,9 @@ export default async function handler(req, res) {
         channelID: item?.channel?.id,
       }));
     } else {
-      items = channel.videos.map(item => ({
+      // channel.videos is an object with items array, not a direct array
+      const videoItems = channel.videos.items || [];
+      items = videoItems.map(item => ({
         id: item?.id,
         title: item?.title,
         duration: item?.duration,

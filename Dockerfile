@@ -1,7 +1,16 @@
 # Base stage for shared configuration
 FROM node:18-alpine AS base
 WORKDIR /app
+
+# Install Python and pip for yt-dlp wrapper
+RUN apk add --no-cache python3 py3-pip
+
+# Copy package files
 COPY package*.json ./
+COPY requirements.txt ./
+
+# Install Python dependencies
+RUN pip3 install --no-cache-dir -r requirements.txt --break-system-packages
 
 # Development stage
 FROM base AS dev
@@ -20,14 +29,12 @@ CMD ["npm", "run", "test"]
 FROM base AS builder
 RUN npm install
 COPY . .
-RUN cd src/utils/youtube-transcript && npm install && npm run build
 RUN npm run build
 
 # Production stage
 FROM base AS prod
 RUN apk add --no-cache wget
 COPY . .
-COPY --from=builder /app/src/utils/youtube-transcript/dist ./src/utils/youtube-transcript/dist
 RUN npm install --production
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public

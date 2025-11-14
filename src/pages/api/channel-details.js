@@ -26,7 +26,8 @@ export default async function handler(req, res) {
   try {
     const channel = await youtube.findOne(id, { type: "channel" });
 
-    if (!channel) {
+    // Check for error response from yt-dlp wrapper
+    if (!channel || channel.error) {
       logger.error("Channel not found", `ID: ${id}`);
       return res.status(404).json({ message: "Channel not found" });
     }
@@ -37,8 +38,8 @@ export default async function handler(req, res) {
       description: channel?.description,
       isVerified: channel?.isVerified,
       subscriberCount: channel?.subscriberCount,
-      thumbnail: channel?.thumbnails?.[0]?.url || null,
-      banner: channel?.banner?.[0]?.url || null,
+      thumbnail: channel?.thumbnail || channel?.thumbnails?.[0]?.url || null,
+      banner: channel?.banner || null,
       joinedDate: channel?.joinedDate,
       location: channel?.location,
       videosCount: channel?.videosCount,

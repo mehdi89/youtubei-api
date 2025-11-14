@@ -1,6 +1,6 @@
 import logger from "@/utils/logger";
-import { YoutubeTranscript } from '@/utils/youtube-transcript/dist/youtube-transcript.common.js';
-import { Client } from 'youtubei';
+import { YoutubeTranscript } from '@/utils/ytdlp-client.js';
+import Client from '@/utils/ytdlp-client.js';
 
 
 // Get API key from environment variables
@@ -109,9 +109,8 @@ async function fetchVideo(_, id) {
 
     try {
       // Create a fresh client instance for each request to avoid state issues
-      const { Client } = require('youtubei');
       const freshClient = new Client();
-      
+
       logger.fetch(`Fetching video with fresh client`, `Video: ${id}`);
       const video = await freshClient.getVideo(id);
       
