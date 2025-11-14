@@ -187,12 +187,18 @@ class Client {
           params: { id }
         });
 
+        // Fetch first page of videos immediately for consistency with playlists
+        const firstPageVideos = await executePythonWrapper({
+          command: 'getChannelVideos',
+          params: { id, page: 1 }
+        });
+
         // Return channel object with videos interface
         return {
           ...result,
           videos: {
-            items: [],
-            currentPage: 0,
+            items: firstPageVideos,
+            currentPage: 1,
             channelId: id,
             next: async function(page = null) {
               // Handle page parameter - if provided, use it; otherwise increment
