@@ -110,3 +110,14 @@ Create `.env` file in root with above variable for local development.
 4. **Live Stream Detection**: Video responses include `isLive` field
 
 5. **Error Recovery**: API gracefully handles YouTube service issues with appropriate error messages and logging
+
+### yt-dlp Alternative Implementation
+
+A Python-based drop-in replacement using yt-dlp is available at `app/python/ytdlp/` that:
+- **Fixes youtubei issue #122**: Shorts and playlists now work correctly
+- **Field name compatibility**: Accepts both original API field names and app field names
+  - Example: `channelId` or `id`, `q` or `query`, `videoId` or `id`
+- **Same authentication**: Uses the same `api-key` header and environment variable
+- **Port configuration**: Runs on port 3001 by default (configurable via PORT env var)
+- **Docker ready**: Includes Dockerfile for containerized deployment
+- **100% API compatible**: Drop-in replacement requiring no backend changes
