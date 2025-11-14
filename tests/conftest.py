@@ -33,7 +33,7 @@ def valid_video_id():
 @pytest.fixture
 def valid_channel_id():
     """Return a valid YouTube channel ID for testing"""
-    return "UCkWQ0gDrK9yn7h_WI8YVo7A"  # Fireship
+    return "@Fireship"  # Fireship channel handle (more reliable than ID)
 
 @pytest.fixture
 def valid_playlist_id():

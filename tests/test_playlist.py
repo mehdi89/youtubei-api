@@ -69,5 +69,9 @@ def test_playlist_invalid_id(client, headers):
         json={"id": "invalid_playlist_123"},
         headers=headers
     )
+    # Should return 404 for invalid playlist
     assert response.status_code == 404
+    data = response.json()
+    assert "message" in data
+    assert "not found" in data["message"].lower()
 

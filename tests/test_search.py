@@ -66,6 +66,9 @@ def test_search_empty_query(client, headers):
         json={"query": "", "type": "video"},
         headers=headers
     )
-    # Should return 404 or empty results
-    assert response.status_code in [200, 404]
+    # Should return empty array for empty query
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, list)
+    assert len(data) == 0
 

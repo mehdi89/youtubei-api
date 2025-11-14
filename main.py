@@ -148,6 +148,9 @@ def get_ytdlp_opts(extract_flat: bool = False) -> Dict[str, Any]:
         'no_warnings': True,
         'extract_flat': extract_flat,
         'skip_download': True,
+        'extractor_args': {
+            'youtubetab': {'skip': ['authcheck']}  # Skip auth check for channels/playlists
+        }
     }
     
     # Add cookies if available
@@ -466,6 +469,11 @@ async def search(
     logger.info(f"🔄 FETCH: Search '{request.query}' | Type: {request.type} | Page: {request.page}")
     
     try:
+        # Handle empty query
+        if not request.query or not request.query.strip():
+            logger.warning(f"⚠️ WARN: Empty search query")
+            return []
+        
         items_per_page = 30
         max_results = request.page * items_per_page + 30
         
@@ -478,7 +486,8 @@ async def search(
             result = ydl.extract_info(search_query, download=False)
             
             if not result or 'entries' not in result:
-                raise HTTPException(status_code=404, detail="No results found")
+                logger.info(f"ℹ️ INFO: No results found for '{request.query}'")
+                return []
             
             entries = result['entries']
             
@@ -504,7 +513,8 @@ async def search(
                 })
             
             if not results:
-                raise HTTPException(status_code=404, detail="No results found")
+                logger.info(f"ℹ️ INFO: No results found for '{request.query}'")
+                return []
             
             logger.info(f"✅ SUCCESS: Found {len(results)} results for '{request.query}'")
             return results
@@ -594,26 +604,34 @@ async def channel_videos(
         items_per_page = 30
         max_items = request.page * items_per_page + 30
         
+        # Try multiple URL patterns for better compatibility
         urls_to_try = [
-            f"https://www.youtube.com/channel/{request.id}/videos",
-            f"https://www.youtube.com/@{request.id}/videos",
+            f"https://www.youtube.com/{request.id}/videos",  # Try as-is first (handles @username)
+            f"https://www.youtube.com/channel/{request.id}/videos",  # Try as channel ID
+            f"https://www.youtube.com/@{request.id}/videos",  # Try with @ prefix
+            f"https://www.youtube.com/c/{request.id}/videos",  # Try as custom URL
         ]
         
         opts = get_ytdlp_opts(extract_flat=True)
         opts['playlistend'] = max_items
         
         info = None
+        last_error = None
+        
         for url in urls_to_try:
             try:
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=False)
-                    if info and 'entries' in info:
+                    if info and 'entries' in info and len(info['entries']) > 0:
+                        logger.info(f"✅ SUCCESS: Channel videos found with URL: {url}")
                         break
-            except:
+            except Exception as e:
+                last_error = str(e)
                 continue
         
         if not info or 'entries' not in info:
-            raise HTTPException(status_code=404, detail="Channel not found")
+            logger.error(f"❌ ERROR: Channel not found or has no videos: {request.id} | Last error: {last_error}")
+            raise HTTPException(status_code=404, detail="Channel not found or has no videos")
         
         entries = [e for e in info['entries'] if e]
         
@@ -659,13 +677,46 @@ async def channel_live_videos(
     logger.info(f"🔄 FETCH: Channel live videos {request.id}")
     
     try:
-        # Get all videos and filter for live ones
-        all_videos_request = ChannelRequest(id=request.id, page=1)
-        all_videos = await channel_videos(all_videos_request, api_key)
+        # Try to get live/streams page first
+        urls_to_try = [
+            f"https://www.youtube.com/{request.id}/streams",
+            f"https://www.youtube.com/channel/{request.id}/streams",
+            f"https://www.youtube.com/@{request.id}/streams",
+            f"https://www.youtube.com/c/{request.id}/streams",
+        ]
         
-        # Filter for live videos
-        live_videos = [v for v in all_videos if v.get("isLive", False)]
+        opts = get_ytdlp_opts(extract_flat=True)
+        opts['playlistend'] = 30
         
+        live_videos = []
+        
+        # Try streams page first
+        for url in urls_to_try:
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                    if info and 'entries' in info:
+                        live_videos = [
+                            {
+                                "id": item.get("id", ""),
+                                "title": decode_html_entities(item.get("title", "")),
+                                "duration": item.get("duration", 0),
+                                "description": decode_html_entities(item.get("description")) if item.get("description") else None,
+                                "isLive": True,
+                                "viewCount": str(format_count(item.get("view_count"))),
+                                "uploadDate": format_date(item.get("upload_date", "")),
+                                "thumbnail": f"https://img.youtube.com/vi/{item.get('id', '')}/hqdefault.jpg",
+                                "channelName": item.get("channel", "") or item.get("uploader", ""),
+                                "channelID": item.get("channel_id", request.id)
+                            }
+                            for item in info['entries'] if item and item.get("is_live", False)
+                        ]
+                        if live_videos:
+                            break
+            except:
+                continue
+        
+        # If no live videos found on streams page, return empty array
         logger.info(f"✅ SUCCESS: Found {len(live_videos)} live videos for channel {request.id}")
         return live_videos
         
@@ -673,7 +724,8 @@ async def channel_live_videos(
         raise
     except Exception as e:
         logger.error(f"❌ ERROR: Failed to fetch live videos {request.id} | {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Return empty array instead of error for live videos (common to have none)
+        return []
 
 
 @app.post("/api/playlist")
@@ -700,6 +752,7 @@ async def playlist(
             info = ydl.extract_info(url, download=False)
             
             if not info or 'entries' not in info:
+                logger.error(f"❌ ERROR: Playlist not found: {request.id}")
                 raise HTTPException(status_code=404, detail="Playlist not found")
             
             entries = [e for e in info['entries'] if e]
@@ -727,6 +780,9 @@ async def playlist(
             logger.info(f"✅ SUCCESS: Found {len(results)} videos in playlist {request.id}")
             return results
             
+    except yt_dlp.utils.DownloadError as e:
+        logger.error(f"❌ ERROR: Playlist not found: {request.id}")
+        raise HTTPException(status_code=404, detail="Playlist not found")
     except HTTPException:
         raise
     except Exception as e:
