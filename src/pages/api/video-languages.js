@@ -1,4 +1,4 @@
-import { YoutubeTranscript } from '@/utils/youtube-transcript/dist/youtube-transcript.common.js';
+import { YoutubeTranscript } from '@/utils/ytdlp-client.js';
 import logger from "@/utils/logger";
 
 export default async function handler(req, res) {

@@ -1,5 +1,5 @@
-import { Client } from 'youtubei';
-import { YoutubeTranscript } from '@/utils/youtube-transcript/dist/youtube-transcript.common.js';
+import Client from '@/utils/ytdlp-client.js';
+import { YoutubeTranscript } from '@/utils/ytdlp-client.js';
 import logger from "@/utils/logger";
 
 function decodeEntities(encodedString) {
