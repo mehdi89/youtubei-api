@@ -25,7 +25,6 @@ export default async function handler(req, res) {
 
   try {
     let items = [];
-    let newVideos = [];
     let channel = await youtube.findOne(id, { type: "channel" });
 
     // Check for error response from yt-dlp wrapper
@@ -34,52 +33,35 @@ export default async function handler(req, res) {
       return res.status(404).json({ message: "Channel not found" });
     }
 
-    if (page > 1) {
-      for (let i = 2; i <= page; i++) {
-        try {
-          logger.fetch(`Loading page ${i}`, `Channel: ${id}`);
-          newVideos = await channel.videos.next(i);
-        } catch (error) {
-          logger.warn(`Failed to load page ${i}`, `Channel: ${id} | Error: ${error.message}`);
-          return res.status(200).json(newVideos);
-        }
-      }
+    let videosToMap;
+    
+    if (page === 1) {
+      // For page 1, use the already-loaded data
+      videosToMap = channel.videos.items || [];
     } else {
-      newVideos = await channel.videos.next();
+      // For page > 1, fetch the specific page
+      try {
+        logger.fetch(`Loading page ${page}`, `Channel: ${id}`);
+        videosToMap = await channel.videos.next(page);
+      } catch (error) {
+        logger.warn(`Failed to load page ${page}`, `Channel: ${id} | Error: ${error.message}`);
+        return res.status(200).json([]);
+      }
     }
 
-    if (newVideos && newVideos.length > 0) {
-      if (page === 2) {
-        newVideos = newVideos.slice(30, 60);
-      }
-      items = newVideos.map(item => ({
-        id: item?.id,
-        title: item?.title,
-        duration: item?.duration,
-        description: item?.description,
-        isLive: item?.isLive,
-        viewCount: item?.viewCount,
-        uploadDate: item?.uploadDate,
-        thumbnail: `https://img.youtube.com/vi/${item?.id}/hqdefault.jpg`,
-        channelName: item?.channel?.name,
-        channelID: item?.channel?.id,
-      }));
-    } else {
-      // channel.videos is an object with items array, not a direct array
-      const videoItems = channel.videos.items || [];
-      items = videoItems.map(item => ({
-        id: item?.id,
-        title: item?.title,
-        duration: item?.duration,
-        description: item?.description,
-        isLive: item?.isLive,
-        viewCount: item?.viewCount,
-        uploadDate: item?.uploadDate,
-        thumbnail: `https://img.youtube.com/vi/${item?.id}/hqdefault.jpg`,
-        channelName: item?.channel?.name,
-        channelID: item?.channel?.id,
-      }));
-    }
+    // Map the videos to the expected format
+    items = videosToMap.map(item => ({
+      id: item?.id,
+      title: item?.title,
+      duration: item?.duration,
+      description: item?.description,
+      isLive: item?.isLive,
+      viewCount: item?.viewCount,
+      uploadDate: item?.uploadDate,
+      thumbnail: `https://img.youtube.com/vi/${item?.id}/hqdefault.jpg`,
+      channelName: item?.channelName || item?.channel?.name,
+      channelID: item?.channelID || item?.channel?.id,
+    }));
 
     logger.success(`Found ${items.length} videos`, `Channel: ${id} | Page: ${page}`);
     return res.status(200).json(items);
