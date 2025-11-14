@@ -504,10 +504,10 @@ async def search(
                 results.append({
                     "id": item.get("id", ""),
                     "title": decode_html_entities(item.get("title", "")),
-                    "duration": item.get("duration", 0),
+                    "duration": int(item.get("duration", 0)) if item.get("duration") else 0,
                     "description": decode_html_entities(item.get("description")) if item.get("description") else None,
                     "isLive": item.get("is_live", False),
-                    "viewCount": str(format_count(item.get("view_count"))) if item.get("view_count") else "0",
+                    "viewCount": format_count(item.get("view_count")) if item.get("view_count") else 0,
                     "uploadDate": format_date(item.get("upload_date", "")),
                     "thumbnail": f"https://img.youtube.com/vi/{item.get('id', '')}/hqdefault.jpg"
                 })
@@ -645,10 +645,10 @@ async def channel_videos(
             results.append({
                 "id": item.get("id", ""),
                 "title": decode_html_entities(item.get("title", "")),
-                "duration": item.get("duration", 0),
+                "duration": int(item.get("duration", 0)) if item.get("duration") else 0,
                 "description": decode_html_entities(item.get("description")) if item.get("description") else None,
                 "isLive": item.get("is_live", False),
-                "viewCount": str(format_count(item.get("view_count"))),
+                "viewCount": format_count(item.get("view_count")) if item.get("view_count") else 0,
                 "uploadDate": format_date(item.get("upload_date", "")),
                 "thumbnail": f"https://img.youtube.com/vi/{item.get('id', '')}/hqdefault.jpg",
                 "channelName": item.get("channel", "") or item.get("uploader", ""),
@@ -700,10 +700,10 @@ async def channel_live_videos(
                             {
                                 "id": item.get("id", ""),
                                 "title": decode_html_entities(item.get("title", "")),
-                                "duration": item.get("duration", 0),
+                                "duration": int(item.get("duration", 0)) if item.get("duration") else 0,
                                 "description": decode_html_entities(item.get("description")) if item.get("description") else None,
                                 "isLive": True,
-                                "viewCount": str(format_count(item.get("view_count"))),
+                                "viewCount": format_count(item.get("view_count")) if item.get("view_count") else 0,
                                 "uploadDate": format_date(item.get("upload_date", "")),
                                 "thumbnail": f"https://img.youtube.com/vi/{item.get('id', '')}/hqdefault.jpg",
                                 "channelName": item.get("channel", "") or item.get("uploader", ""),
@@ -767,10 +767,10 @@ async def playlist(
                 results.append({
                     "id": item.get("id", ""),
                     "title": decode_html_entities(item.get("title", "")),
-                    "duration": item.get("duration", 0),
+                    "duration": int(item.get("duration", 0)) if item.get("duration") else 0,
                     "description": decode_html_entities(item.get("description")) if item.get("description") else None,
                     "isLive": item.get("is_live", False),
-                    "viewCount": str(format_count(item.get("view_count"))),
+                    "viewCount": format_count(item.get("view_count")) if item.get("view_count") else 0,
                     "uploadDate": format_date(item.get("upload_date", "")),
                     "thumbnail": f"https://img.youtube.com/vi/{item.get('id', '')}/hqdefault.jpg",
                     "channelName": item.get("channel", "") or item.get("uploader", ""),
