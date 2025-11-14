@@ -209,7 +209,7 @@ class YTDLPWrapper:
                 }
             }
 
-        # Find JSON format subtitle
+        # Find JSON format subtitle URL
         json_subtitle = None
         for sub in subtitle_data:
             if sub.get("ext") == "json3":
@@ -217,71 +217,94 @@ class YTDLPWrapper:
                 break
 
         if not json_subtitle:
-            # Try to download subtitles via yt-dlp
-            try:
-                # Use yt-dlp to get subtitles in JSON format
-                result = subprocess.run(
-                    [self.ytdlp_cmd] + self.base_args + [
-                        "--write-auto-sub",
-                        "--sub-format", "json3",
-                        "--sub-lang", transcript_lang,
-                        "--skip-download",
-                        "--print", "requested_subtitles",
-                        f"https://www.youtube.com/watch?v={video_id}"
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=30
-                )
-
-                # Parse subtitle entries (simplified version)
-                # In production, you'd download and parse the actual subtitle file
-                plain_text = []
-                timestamped_text = []
-                timestamped_array = []
-
-                # For now, create a basic response structure
-                # In full implementation, parse actual subtitle JSON
-                return {
-                    "transcript": "",
-                    "transcript_status": {
-                        "available": True,
-                        "reason": None
-                    },
-                    "timestamped_transcript": "",
-                    "timestamped_transcript_array": [],
-                    "timestamped_transcript_status": {
-                        "available": True,
-                        "reason": None,
-                        "language": transcript_lang,
-                        "available_languages": available_languages
-                    }
+            return {
+                "transcript": "",
+                "transcript_status": {
+                    "available": False,
+                    "reason": "JSON subtitle format not available"
                 }
+            }
 
-            except Exception as e:
+        # Download and parse the subtitle file
+        try:
+            import urllib.request
+            subtitle_url = json_subtitle.get("url")
+            
+            if not subtitle_url:
                 return {
                     "transcript": "",
                     "transcript_status": {
                         "available": False,
-                        "reason": str(e)
+                        "reason": "Subtitle URL not found"
                     }
                 }
 
-        # TODO: Implement actual subtitle parsing
-        # This would involve downloading and parsing the subtitle file
-        return {
-            "transcript": "",
-            "transcript_status": {
-                "available": True,
-                "reason": "Transcript parsing not yet implemented"
-            },
-            "timestamped_transcript_status": {
-                "available": True,
-                "reason": None,
-                "language": transcript_lang,
-                "available_languages": available_languages
+            # Download subtitle content
+            with urllib.request.urlopen(subtitle_url, timeout=10) as response:
+                subtitle_content = response.read().decode('utf-8')
+                subtitle_json = json.loads(subtitle_content)
+
+            # Parse subtitle events
+            plain_text_parts = []
+            timestamped_array = []
+            
+            events = subtitle_json.get("events", [])
+            for event in events:
+                # Skip events without segments (usually formatting)
+                segs = event.get("segs")
+                if not segs:
+                    continue
+                
+                # Extract text from segments
+                text = "".join([seg.get("utf8", "") for seg in segs])
+                text = text.strip()
+                
+                if text:
+                    plain_text_parts.append(text)
+                    
+                    # Add timestamped entry
+                    start_ms = event.get("tStartMs", 0)
+                    duration_ms = event.get("dDurationMs", 0)
+                    
+                    timestamped_array.append({
+                        "text": text,
+                        "offset": start_ms / 1000.0,  # Convert to seconds
+                        "duration": duration_ms / 1000.0
+                    })
+
+            plain_transcript = " ".join(plain_text_parts)
+            
+            # Build timestamped transcript string
+            timestamped_parts = []
+            for entry in timestamped_array:
+                timestamped_parts.append(f"time : {entry['offset']} second. Text: {entry['text']}")
+            timestamped_transcript = "".join(timestamped_parts)
+
+            return {
+                "transcript": plain_transcript,
+                "transcript_status": {
+                    "available": True,
+                    "reason": None
+                },
+                "timestamped_transcript": timestamped_transcript,
+                "timestamped_transcript_array": timestamped_array,
+                "timestamped_transcript_status": {
+                    "available": True,
+                    "reason": None,
+                    "language": transcript_lang,
+                    "available_languages": available_languages
+                }
             }
-        }
+
+        except Exception as e:
+            return {
+                "transcript": "",
+                "transcript_status": {
+                    "available": False,
+                    "reason": f"Failed to parse transcript: {str(e)}"
+                },
+                "timestamped_transcript_array": []
+            }
 
     def list_transcript_languages(self, video_id: str) -> List[Dict[str, str]]:
         """
@@ -417,21 +440,26 @@ class YTDLPWrapper:
         urls_to_try = [
             f"https://www.youtube.com/channel/{channel_id}",
             f"https://www.youtube.com/@{channel_id}",
+            f"https://www.youtube.com/c/{channel_id}",
         ]
 
+        data = None
         for url in urls_to_try:
             args = [
                 "--dump-json",
-                "--playlist-items", "0",
+                "--playlist-items", "1",  # Get first video to extract channel info
                 "--skip-download",
+                "--flat-playlist",
                 url
             ]
 
-            data = self._run_ytdlp(args)
+            result = self._run_ytdlp(args)
 
-            if "error" not in data and data:
+            if "error" not in result and result:
+                data = result
                 break
-        else:
+        
+        if not data or "error" in data:
             return {"error": "Channel not found"}
 
         # Extract channel info

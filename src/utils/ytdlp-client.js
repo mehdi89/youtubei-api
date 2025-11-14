@@ -284,13 +284,14 @@ class YoutubeTranscript {
         }
       });
 
-      // Convert to array format expected by the API
-      if (result.timestamped_transcript_array) {
-        return result.timestamped_transcript_array.map((text, index) => ({
-          text,
-          offset: index * 5, // Approximate offset
-          duration: 5
-        }));
+      // Return the timestamped transcript array from yt-dlp
+      if (result.timestamped_transcript_array && Array.isArray(result.timestamped_transcript_array)) {
+        return result.timestamped_transcript_array;
+      }
+
+      // If transcript is available but no array, return empty to avoid errors
+      if (result.transcript_status && result.transcript_status.available === false) {
+        throw new Error(result.transcript_status.reason || 'Transcript not available');
       }
 
       return [];
