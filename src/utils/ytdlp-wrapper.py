@@ -18,7 +18,28 @@ class YTDLPWrapper:
 
     def __init__(self):
         self.ytdlp_cmd = "yt-dlp"
-        self.base_args = ["--no-check-certificate", "--no-warnings", "--quiet"]
+        self.base_args = [
+            "--no-check-certificate",
+            "--no-warnings",
+            "--quiet",
+            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "--extractor-args", "youtube:player_client=android,web",
+        ]
+        
+        # Add cookies if available
+        import os
+        cookie_file = os.getenv("YTDLP_COOKIES_FILE")
+        if cookie_file and os.path.exists(cookie_file):
+            self.base_args.extend(["--cookies", cookie_file])
+        
+        # Try to use browser cookies as fallback
+        browser = os.getenv("YTDLP_COOKIES_BROWSER", "chrome")
+        if not cookie_file:
+            # Don't fail if browser cookies aren't available
+            try:
+                self.base_args.extend(["--cookies-from-browser", browser])
+            except:
+                pass
 
     def _run_ytdlp(self, args: List[str]) -> Dict[str, Any]:
         """Execute yt-dlp command and return parsed JSON output."""
