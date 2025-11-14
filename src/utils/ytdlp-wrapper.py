@@ -64,6 +64,24 @@ class YTDLPWrapper:
         elif count >= 1_000:
             return f"{count / 1_000:.1f}K".rstrip('0').rstrip('.')
         return str(count)
+    
+    def _format_subscriber_count(self, count: Optional[int]) -> str:
+        """Format subscriber count with 'subscribers' suffix to match production API."""
+        if count is None or count == 0:
+            return "0 subscribers"
+        
+        count = int(count)
+        if count >= 1_000_000_000:
+            formatted = f"{count / 1_000_000_000:.2f}".rstrip('0').rstrip('.')
+            return f"{formatted}B subscribers"
+        elif count >= 1_000_000:
+            formatted = f"{count / 1_000_000:.2f}".rstrip('0').rstrip('.')
+            return f"{formatted}M subscribers"
+        elif count >= 1_000:
+            formatted = f"{count / 1_000:.2f}".rstrip('0').rstrip('.')
+            return f"{formatted}K subscribers"
+        else:
+            return f"{count} subscribers"
 
     def _format_date(self, date_str: Optional[str]) -> str:
         """Convert date to YYYY-MM-DD format."""
@@ -117,9 +135,10 @@ class YTDLPWrapper:
         response = {
             "id": video_id,
             "channel": {
+                "id": data.get("channel_id", ""),
                 "youtube_channel_id": data.get("channel_id", ""),
                 "name": data.get("channel", "") or data.get("uploader", ""),
-                "subscriberCount": self._format_count(data.get("channel_follower_count")),
+                "subscriberCount": self._format_subscriber_count(data.get("channel_follower_count")),
                 "thumbnails": [{"url": thumb} for thumb in (data.get("thumbnails", [{}])[-1:] if data.get("thumbnails") else [])],
                 "videoCount": 0,  # yt-dlp doesn't provide this in video endpoint
                 "url": data.get("channel_url", "")
@@ -128,10 +147,10 @@ class YTDLPWrapper:
             "chapters": data.get("chapters", []),
             "description": self._decode_html_entities(data.get("description", "")),
             "duration": data.get("duration", 0),
-            "likeCount": self._format_count(data.get("like_count")),
+            "likeCount": int(data.get("like_count", 0) or 0),
             "isLiveContent": data.get("is_live", False) or data.get("was_live", False),
             "uploadDate": self._format_date(data.get("upload_date", "")),
-            "viewCount": self._format_count(data.get("view_count")),
+            "viewCount": int(data.get("view_count", 0) or 0),
         }
 
         # Add transcript if requested
