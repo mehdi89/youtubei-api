@@ -1,0 +1,61 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.9.6, pytest-8.4.2, pluggy-1.6.0 -- /Applications/Xcode.app/Contents/Developer/usr/bin/python3
+cachedir: .pytest_cache
+rootdir: /Users/mehdi/Work/TubeOnAI/youtubei-api
+plugins: asyncio-1.2.0, anyio-3.7.1, cov-7.0.0
+asyncio: mode=strict, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 29 items
+
+tests/test_channel.py::test_channel_details_no_auth PASSED               [  3%]
+tests/test_channel.py::test_channel_details FAILED                       [  6%]
+tests/test_channel.py::test_channel_endpoint_alias FAILED                [ 10%]
+tests/test_channel.py::test_channel_videos_no_auth PASSED                [ 13%]
+tests/test_channel.py::test_channel_videos FAILED                        [ 17%]
+tests/test_channel.py::test_channel_videos_pagination FAILED             [ 20%]
+tests/test_channel.py::test_channel_live_videos_no_auth PASSED           [ 24%]
+tests/test_channel.py::test_channel_live_videos FAILED                   [ 27%]
+tests/test_channel.py::test_channel_invalid_id PASSED                    [ 31%]
+tests/test_health.py::test_root_endpoint PASSED                          [ 34%]
+tests/test_health.py::test_hello_endpoint PASSED                         [ 37%]
+tests/test_playlist.py::test_playlist_no_auth PASSED                     [ 41%]
+tests/test_playlist.py::test_playlist_videos PASSED                      [ 44%]
+tests/test_playlist.py::test_playlist_pagination PASSED                  [ 48%]
+tests/test_playlist.py::test_playlist_invalid_id FAILED                  [ 51%]
+tests/test_search.py::test_search_no_auth PASSED                         [ 55%]
+tests/test_search.py::test_search_videos PASSED                          [ 58%]
+tests/test_search.py::test_search_pagination PASSED                      [ 62%]
+tests/test_search.py::test_search_empty_query FAILED                     [ 65%]
+tests/test_transcript.py::test_transcript_no_auth PASSED                 [ 68%]
+tests/test_transcript.py::test_transcript_plain PASSED                   [ 72%]
+tests/test_transcript.py::test_transcript_timestamped PASSED             [ 75%]
+tests/test_transcript.py::test_video_languages_no_auth PASSED            [ 79%]
+tests/test_transcript.py::test_video_languages PASSED                    [ 82%]
+tests/test_video_details.py::test_video_details_no_auth PASSED           [ 86%]
+tests/test_video_details.py::test_video_details_basic PASSED             [ 89%]
+tests/test_video_details.py::test_video_details_with_transcript PASSED   [ 93%]
+tests/test_video_details.py::test_video_details_with_timestamped PASSED  [ 96%]
+tests/test_video_details.py::test_video_details_invalid_id PASSED        [100%]
+
+=================================== FAILURES ===================================
+/Users/mehdi/Work/TubeOnAI/youtubei-api/tests/test_channel.py:21: assert 404 == 200
+/Users/mehdi/Work/TubeOnAI/youtubei-api/tests/test_channel.py:43: assert 404 == 200
+/Users/mehdi/Work/TubeOnAI/youtubei-api/tests/test_channel.py:63: assert 404 == 200
+/Users/mehdi/Work/TubeOnAI/youtubei-api/tests/test_channel.py:87: assert 404 == 200
+/Users/mehdi/Work/TubeOnAI/youtubei-api/tests/test_channel.py:106: assert 404 == 200
+/Users/mehdi/Work/TubeOnAI/youtubei-api/tests/test_playlist.py:72: assert 500 == 404
+/Users/mehdi/Work/TubeOnAI/youtubei-api/tests/test_search.py:70: assert 500 in [200, 404]
+=============================== warnings summary ===============================
+../../../Library/Python/3.9/lib/python/site-packages/urllib3/__init__.py:35
+  /Users/mehdi/Library/Python/3.9/lib/python/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_channel.py::test_channel_details - assert 404 == 200
+FAILED tests/test_channel.py::test_channel_endpoint_alias - assert 404 == 200
+FAILED tests/test_channel.py::test_channel_videos - assert 404 == 200
+FAILED tests/test_channel.py::test_channel_videos_pagination - assert 404 == 200
+FAILED tests/test_channel.py::test_channel_live_videos - assert 404 == 200
+FAILED tests/test_playlist.py::test_playlist_invalid_id - assert 500 == 404
+FAILED tests/test_search.py::test_search_empty_query - assert 500 in [200, 404]
+============== 7 failed, 22 passed, 1 warning in 62.09s (0:01:02) ==============

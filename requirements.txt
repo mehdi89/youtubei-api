@@ -1,2 +1,13 @@
-# Python dependencies for yt-dlp wrapper
-yt-dlp>=2024.1.0
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+yt-dlp==2023.11.16
+pydantic==2.5.0
+python-multipart==0.0.6
+python-dotenv==1.0.0
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.24.1
+pytest-cov==4.1.0
+

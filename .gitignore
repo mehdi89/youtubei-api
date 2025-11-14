@@ -54,3 +54,7 @@ node_modules/
 .vscode/
 *.swp
 *.swo
+
+# Cookies
+youtube_cookies.txt
+*_cookies.txt

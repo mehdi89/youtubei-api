@@ -1,43 +1,35 @@
-# Base stage for shared configuration
-FROM node:18-alpine AS base
+# Python-only Dockerfile for YouTube API with yt-dlp
+FROM python:3.11-slim
+
+# Set working directory
 WORKDIR /app
 
-# Install Python and pip for yt-dlp wrapper
-RUN apk add --no-cache python3 py3-pip
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    wget \
+    curl \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy package files
-COPY package*.json ./
-COPY requirements.txt ./
+# Copy requirements
+COPY requirements.txt .
 
 # Install Python dependencies
-RUN pip3 install --no-cache-dir -r requirements.txt --break-system-packages
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Development stage
-FROM base AS dev
-RUN npm install
-COPY . .
+# Copy application
+COPY main.py .
+
+# Copy cookies file if it exists
+COPY youtube_cookies.txt* ./
+
+# Expose port
 EXPOSE 3000
-CMD ["npm", "run", "dev"]
 
-# Test stage
-FROM base AS test
-RUN npm install
-COPY . .
-CMD ["npm", "run", "test"]
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/hello || exit 1
 
-# Build stage
-FROM base AS builder
-RUN npm install
-COPY . .
-RUN npm run build
+# Run the application
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3000"]
 
-# Production stage
-FROM base AS prod
-RUN apk add --no-cache wget
-COPY . .
-RUN npm install --production
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/package.json ./package.json
-EXPOSE 3000
-CMD ["npm", "start"] 
