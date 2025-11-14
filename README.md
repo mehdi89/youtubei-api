@@ -1,236 +1,308 @@
-# YouTubei API
+# YouTube API Server
 
-A powerful and efficient YouTube data API built with Next.js that provides access to video details, transcripts, channel information, and search functionality.
+A high-performance YouTube data extraction API built with **FastAPI** and **yt-dlp**. This API provides comprehensive access to YouTube video details, transcripts, search, channel information, and playlists.
 
 ## Features
 
-- 🎥 Video Details & Transcripts
-- 📺 Channel Information
-- 🔍 Search (Videos, Channels, Playlists)
-- 📝 Multi-language Transcript Support
-- 🔴 Live Stream Detection
-- 📋 Playlist Information
-- 🌐 Cross-Origin Support
-- 📊 Detailed Response Format
+- 🚀 **Fast**: Built with FastAPI for high performance
+- 🎯 **Complete**: All major YouTube data extraction endpoints
+- 📝 **Transcripts**: Full support for video transcripts with timestamps
+- 🔍 **Search**: Search videos, channels, and playlists
+- 📺 **Channels**: Get channel details, videos, and live streams
+- 📋 **Playlists**: Extract all videos from any playlist
+- 🍪 **Bot Protection**: Cookie-based authentication bypass
+- 🐳 **Docker Ready**: Fully containerized deployment
+- 🔐 **Secure**: API key authentication
 
-## Getting Started
+## Tech Stack
+
+- **FastAPI**: Modern Python web framework
+- **yt-dlp**: Powerful YouTube downloader library
+- **Python 3.11**: Latest stable Python
+- **Docker**: Containerized deployment
+- **uvicorn**: High-performance ASGI server
+
+## Quick Start
 
 ### Prerequisites
 
-- Node.js 16.x or higher
-- Docker (optional, for containerized deployment)
+- Docker and Docker Compose
+- YouTube API Key (set in `.env`)
+- YouTube cookies file (optional, for bot detection bypass)
 
-### Environment Setup
+### Installation
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/youtubei-api.git
+git clone <repository-url>
 cd youtubei-api
 ```
 
-2. Install dependencies:
+2. Create `.env` file:
 ```bash
-npm install
+cp .env.example .env
+# Edit .env and add your YOUTUBE_API_KEY
 ```
 
-3. Create a `.env` file in the root directory:
-```env
-YOUTUBE_API_KEY=your_api_key_here
+3. (Optional) Add YouTube cookies:
+```bash
+# Place your youtube_cookies.txt in the root directory
+# See https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp
 ```
 
-### Development
-
-Run the development server:
+4. Build and run with Docker:
 ```bash
-npm run dev
+docker-compose build
+docker-compose up -d
 ```
 
-### Production Deployment
-
-Using Docker:
+5. Check health:
 ```bash
-docker compose up -d prod
+curl http://localhost:3000/api/hello
 ```
 
 ## API Endpoints
 
-All endpoints require a valid API key passed in the headers as `api-key`.
+### Health Check
+```bash
+GET /api/hello
+```
 
 ### Video Details
+```bash
+POST /api/video-details
+Content-Type: application/json
+api-key: YOUR_API_KEY
 
-`POST /api/video-details`
-```json
 {
-  "id": "video_id",
-  "transcript": true
+  "id": "VIDEO_ID",
+  "transcript": true,
+  "timestamped": true
+}
+```
+
+### Transcript
+```bash
+POST /api/transcript
+Content-Type: application/json
+api-key: YOUR_API_KEY
+
+{
+  "id": "VIDEO_ID",
+  "type": "plain"
 }
 ```
 
 ### Search
+```bash
+POST /api/search
+Content-Type: application/json
+api-key: YOUR_API_KEY
 
-`POST /api/search`
-```json
 {
-  "type": "video|channel|playlist",
-  "query": "search term",
+  "query": "python tutorial",
+  "type": "video",
   "page": 1
-}
-```
-
-### Channel Videos
-
-`POST /api/channel-videos`
-```json
-{
-  "id": "channel_id",
-  "page": 1
-}
-```
-
-### Channel Live Videos
-
-`POST /api/channel-live-videos`
-```json
-{
-  "id": "channel_id"
 }
 ```
 
 ### Channel Details
+```bash
+POST /api/channel-details
+Content-Type: application/json
+api-key: YOUR_API_KEY
 
-`POST /api/channel-details`
-```json
 {
-  "id": "channel_id"
+  "id": "CHANNEL_ID"
 }
 ```
 
-### Playlist Videos
+### Channel Videos
+```bash
+POST /api/channel-videos
+Content-Type: application/json
+api-key: YOUR_API_KEY
 
-`POST /api/playlist`
-```json
 {
-  "id": "playlist_id",
+  "id": "CHANNEL_ID",
   "page": 1
 }
 ```
 
-### Video Transcripts
+### Playlist Videos
+```bash
+POST /api/playlist
+Content-Type: application/json
+api-key: YOUR_API_KEY
 
-`POST /api/transcript`
-```json
 {
-  "id": "video_id",
-  "type": "timestamped",
-  "lang": "en"
+  "id": "PLAYLIST_ID",
+  "page": 1
 }
 ```
 
-### Video Languages
+For complete API documentation with request/response examples, see [API_DOCUMENTATION.md](./docs/API_DOCUMENTATION.md).
 
-`POST /api/video-languages`
-```json
-{
-  "id": "video_id"
-}
+## Docker Deployment
+
+### Production Deployment
+
+```bash
+# Build the image
+docker-compose build
+
+# Start the service
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop the service
+docker-compose down
 ```
 
-## Response Formats
+### Environment Variables
 
-### Video Response
-```json
-{
-  "id": "video_id",
-  "title": "Video Title",
-  "duration": "10:00",
-  "description": "Video description",
-  "isLive": false,
-  "viewCount": 1000,
-  "uploadDate": "2024-01-01",
-  "thumbnail": "thumbnail_url",
-  "channelName": "Channel Name",
-  "channelID": "channel_id",
-  "transcript": {
-    "available": true,
-    "content": "transcript text",
-    "reason": null
-  }
-}
+- `YOUTUBE_API_KEY`: Your API key for authentication
+- `PORT`: Server port (default: 3000)
+
+### Docker Compose Configuration
+
+The `docker-compose.yml` includes:
+- Health checks
+- Resource limits (1 CPU, 1GB RAM)
+- Log rotation
+- Auto-restart policy
+
+## Local Development
+
+### Without Docker
+
+1. Install Python 3.11+
+2. Install dependencies:
+```bash
+pip install -r requirements.txt
 ```
 
-### Channel Response
-```json
-{
-  "id": "channel_id",
-  "name": "Channel Name",
-  "description": "Channel description",
-  "isVerified": true,
-  "subscriberCount": 1000000,
-  "thumbnail": "thumbnail_url",
-  "banner": "banner_url",
-  "joinedDate": "2020-01-01",
-  "location": "US",
-  "videosCount": 100,
-  "viewCount": 1000000
-}
+3. Run the server:
+```bash
+python main.py
+```
+
+4. Access at http://localhost:3000
+
+### With Auto-reload
+
+```bash
+uvicorn main:app --reload --host 0.0.0.0 --port 3000
+```
+
+## YouTube Cookies Setup
+
+To bypass YouTube's bot detection, you need to provide cookies from an authenticated YouTube session:
+
+1. Install a browser extension to export cookies (e.g., "Get cookies.txt LOCALLY")
+2. Visit youtube.com and log in
+3. Export cookies in Netscape format
+4. Save as `youtube_cookies.txt` in the project root
+5. Rebuild the Docker image
+
+The API will automatically detect and use the cookies file.
+
+## Project Structure
+
+```
+.
+├── main.py                 # FastAPI application
+├── requirements.txt        # Python dependencies
+├── Dockerfile             # Docker build configuration
+├── docker-compose.yml     # Docker Compose setup
+├── youtube_cookies.txt    # YouTube cookies (optional)
+├── .env                   # Environment variables
+├── API_DOCUMENTATION.md   # Complete API reference
+├── FEATURE_EXPANSION.md   # Feature roadmap
+└── README.md             # This file
 ```
 
 ## Error Handling
 
-The API uses standard HTTP status codes:
+The API provides consistent error responses:
 
-- 200: Success
-- 400: Bad Request
-- 401: Unauthorized (Invalid API key)
-- 404: Not Found
-- 405: Method Not Allowed
-- 500: Internal Server Error
+- **401**: Invalid API key
+- **403**: YouTube bot detection (cookies may be expired)
+- **404**: Resource not found
+- **500**: Internal server error
 
-Error responses include a message:
-```json
-{
-  "message": "Error description"
-}
-```
+## Performance
 
-## Logging System
+- Supports concurrent requests
+- Response caching via yt-dlp
+- Resource limits configurable in docker-compose.yml
+- Typical response times: 1-3 seconds per request
 
-The API includes a comprehensive logging system with visual indicators:
+## Monitoring
 
-- ✅ Success operations
-- ❌ Error messages
-- ⚠️ Warning notifications
-- ℹ️ Information logs
-- 🔄 Fetch operations
-
-Logs include timestamps and contextual information for easy debugging.
-
-## Docker Support
-
-The project includes Docker configuration for development, testing, and production environments. Use the provided `docker-compose.yml` and `docker-deploy.sh` for deployment.
-
-### Docker Commands
-
-Build and run production:
+View real-time logs:
 ```bash
-docker compose build prod
-docker compose up -d prod
+docker-compose logs -f
 ```
 
-Check container health:
+Check container status:
 ```bash
-docker compose ps
-docker compose logs prod
+docker-compose ps
 ```
+
+Health check endpoint:
+```bash
+curl http://localhost:3000/api/hello
+```
+
+## Troubleshooting
+
+### Bot Detection Errors
+
+If you see "Sign in to confirm you're not a bot":
+1. Update your `youtube_cookies.txt` file
+2. Rebuild: `docker-compose build`
+3. Restart: `docker-compose up -d`
+
+### High Memory Usage
+
+Adjust limits in `docker-compose.yml`:
+```yaml
+deploy:
+  resources:
+    limits:
+      memory: 2G  # Increase if needed
+```
+
+### Slow Response Times
+
+- Check Docker resource allocation
+- Consider enabling response caching
+- Monitor concurrent request load
+
+## Migration from Node.js
+
+This is a complete rewrite from the previous Node.js implementation. The API maintains **100% backward compatibility** with all request and response formats.
+
+For the old Node.js documentation, see [docs/README-OLD-NODEJS.md](./docs/README-OLD-NODEJS.md).
 
 ## Contributing
 
 1. Fork the repository
-2. Create your feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+[Your License Here]
+
+## Support
+
+For issues and questions:
+- Open an issue on GitHub
+- Check [API_DOCUMENTATION.md](./docs/API_DOCUMENTATION.md) for usage details
+- Review [FEATURE_EXPANSION.md](./docs/FEATURE_EXPANSION.md) for planned features

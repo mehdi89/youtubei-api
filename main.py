@@ -1,6 +1,6 @@
 """
 YouTube API Server - Pure Python Implementation with yt-dlp
-FastAPI-based REST API for YouTube data extraction
+FastAPI-based REST API for YouTube data extraction with cookie support
 """
 
 from fastapi import FastAPI, HTTPException, Header, Request
@@ -10,9 +10,12 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import yt_dlp
 import os
+import sys
 import logging
 from datetime import datetime
 import html
+import json
+import urllib.request
 
 # Configure logging
 logging.basicConfig(
@@ -40,6 +43,23 @@ app.add_middleware(
 
 # Environment variables
 API_KEY = os.getenv("YOUTUBE_API_KEY", "")
+
+# Find cookies file
+COOKIES_FILE = None
+possible_cookie_paths = [
+    "youtube_cookies.txt",
+    "/app/youtube_cookies.txt",
+    "./youtube_cookies.txt"
+]
+for cookie_path in possible_cookie_paths:
+    if os.path.exists(cookie_path):
+        COOKIES_FILE = cookie_path
+        logger.info(f"✅ Found cookies file: {cookie_path}")
+        break
+
+if not COOKIES_FILE:
+    logger.warning("⚠️ No cookies file found - YouTube may block requests")
+
 
 # Request Models
 class VideoDetailsRequest(BaseModel):
@@ -122,146 +142,19 @@ def decode_html_entities(text: str) -> str:
 
 
 def get_ytdlp_opts(extract_flat: bool = False) -> Dict[str, Any]:
-    """Get yt-dlp options"""
+    """Get yt-dlp options with cookies"""
     opts = {
         'quiet': True,
         'no_warnings': True,
         'extract_flat': extract_flat,
         'skip_download': True,
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-us,en;q=0.5',
-            'Sec-Fetch-Mode': 'navigate',
-        },
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android', 'web'],
-            }
-        },
     }
     
     # Add cookies if available
-    cookie_file = os.getenv("YTDLP_COOKIES_FILE")
-    if cookie_file and os.path.exists(cookie_file):
-        opts['cookiefile'] = cookie_file
-    elif os.getenv("YTDLP_COOKIES_BROWSER"):
-        # Try to use browser cookies
-        browser = os.getenv("YTDLP_COOKIES_BROWSER", "chrome")
-        opts['cookiesfrombrowser'] = (browser,)
+    if COOKIES_FILE:
+        opts['cookiefile'] = COOKIES_FILE
     
     return opts
-
-
-# API Endpoints
-@app.get("/")
-async def root():
-    """Root endpoint"""
-    return {
-        "message": "YouTube API Server",
-        "version": "2.0.0",
-        "powered_by": "yt-dlp",
-        "endpoints": [
-            "/api/video-details",
-            "/api/transcript",
-            "/api/video-languages",
-            "/api/search",
-            "/api/channel-details",
-            "/api/channel-videos",
-            "/api/channel-live-videos",
-            "/api/playlist",
-            "/api/channel"
-        ]
-    }
-
-
-@app.get("/api/hello")
-async def hello():
-    """Health check endpoint"""
-    return {"message": "Hello from YouTube API"}
-
-
-@app.post("/api/video-details")
-async def video_details(
-    request: VideoDetailsRequest,
-    api_key: Optional[str] = Header(None, alias="api-key")
-):
-    """Get video details"""
-    if not verify_api_key(api_key):
-        raise HTTPException(status_code=401, detail="Invalid API key")
-    
-    logger.info(f"🔄 FETCH: Video {request.id}")
-    
-    try:
-        opts = get_ytdlp_opts()
-        opts['writesubtitles'] = request.transcript
-        opts['writeautomaticsub'] = request.transcript
-        
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(f"https://www.youtube.com/watch?v={request.id}", download=False)
-            
-            if not info:
-                raise HTTPException(status_code=404, detail="Video not found or may have been removed")
-            
-            # Build response
-            response = {
-                "id": info.get("id", request.id),
-                "channel": {
-                    "id": info.get("channel_id", ""),
-                    "youtube_channel_id": info.get("channel_id", ""),
-                    "name": info.get("channel", "") or info.get("uploader", ""),
-                    "subscriberCount": format_subscriber_count(info.get("channel_follower_count")),
-                    "thumbnails": [{"url": thumb} for thumb in (info.get("thumbnails", [{}])[-1:] if info.get("thumbnails") else [])],
-                    "videoCount": 0,
-                    "url": info.get("channel_url", "")
-                },
-                "title": decode_html_entities(info.get("title", "")),
-                "chapters": info.get("chapters", []),
-                "description": decode_html_entities(info.get("description", "")),
-                "duration": info.get("duration", 0),
-                "likeCount": format_count(info.get("like_count")),
-                "isLiveContent": info.get("is_live", False) or info.get("was_live", False),
-                "uploadDate": format_date(info.get("upload_date", "")),
-                "viewCount": format_count(info.get("view_count")),
-            }
-            
-            # Add transcript if requested
-            if request.transcript:
-                transcript_data = await get_transcript_data(request.id, request.timestamped)
-                response.update(transcript_data)
-            
-            logger.info(f"✅ SUCCESS: Video {request.id} | {response['title']}")
-            return response
-            
-    except Exception as e:
-        logger.error(f"❌ ERROR: Failed to fetch video {request.id} | {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/transcript")
-async def transcript(
-    request: TranscriptRequest,
-    api_key: Optional[str] = Header(None, alias="api-key")
-):
-    """Get video transcript"""
-    if not verify_api_key(api_key):
-        raise HTTPException(status_code=401, detail="Invalid API key")
-    
-    logger.info(f"🔄 FETCH: Transcript for {request.id}")
-    
-    try:
-        transcript_data = await get_transcript_data(request.id, request.type == "timestamped")
-        transcript_text = transcript_data.get("transcript", "")
-        
-        if request.type == "timestamped":
-            transcript_text = transcript_data.get("timestamped_transcript", "")
-        
-        logger.info(f"✅ SUCCESS: Transcript {request.id} | Length: {len(transcript_text)}")
-        return {"data": transcript_text}
-        
-    except Exception as e:
-        logger.error(f"❌ ERROR: Failed to fetch transcript {request.id} | {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 async def get_transcript_data(video_id: str, timestamped: bool = False) -> Dict[str, Any]:
@@ -318,9 +211,6 @@ async def get_transcript_data(video_id: str, timestamped: bool = False) -> Dict[
                 }
             
             # Download and parse subtitle
-            import urllib.request
-            import json
-            
             subtitle_url = json_subtitle.get("url")
             if not subtitle_url:
                 return {
@@ -384,6 +274,7 @@ async def get_transcript_data(video_id: str, timestamped: bool = False) -> Dict[
             }
             
     except Exception as e:
+        logger.error(f"❌ ERROR: Failed to parse transcript: {str(e)}")
         return {
             "transcript": "",
             "transcript_status": {
@@ -391,6 +282,127 @@ async def get_transcript_data(video_id: str, timestamped: bool = False) -> Dict[
                 "reason": f"Failed to parse transcript: {str(e)}"
             }
         }
+
+
+# API Endpoints
+@app.get("/")
+async def root():
+    """Root endpoint"""
+    return {
+        "message": "YouTube API Server",
+        "version": "2.0.0",
+        "powered_by": "yt-dlp",
+        "cookies_enabled": COOKIES_FILE is not None,
+        "endpoints": [
+            "/api/video-details",
+            "/api/transcript",
+            "/api/video-languages",
+            "/api/search",
+            "/api/channel-details",
+            "/api/channel-videos",
+            "/api/channel-live-videos",
+            "/api/playlist",
+            "/api/channel"
+        ]
+    }
+
+
+@app.get("/api/hello")
+async def hello():
+    """Health check endpoint"""
+    return {
+        "message": "Hello from YouTube API",
+        "cookies_enabled": COOKIES_FILE is not None
+    }
+
+
+@app.post("/api/video-details")
+async def video_details(
+    request: VideoDetailsRequest,
+    api_key: Optional[str] = Header(None, alias="api-key")
+):
+    """Get video details"""
+    if not verify_api_key(api_key):
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    
+    logger.info(f"🔄 FETCH: Video {request.id}")
+    
+    try:
+        opts = get_ytdlp_opts()
+        opts['writesubtitles'] = request.transcript
+        opts['writeautomaticsub'] = request.transcript
+        
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(f"https://www.youtube.com/watch?v={request.id}", download=False)
+            
+            if not info:
+                raise HTTPException(status_code=404, detail="Video not found or may have been removed")
+            
+            # Build response
+            response = {
+                "id": info.get("id", request.id),
+                "channel": {
+                    "id": info.get("channel_id", ""),
+                    "youtube_channel_id": info.get("channel_id", ""),
+                    "name": info.get("channel", "") or info.get("uploader", ""),
+                    "subscriberCount": format_subscriber_count(info.get("channel_follower_count")),
+                    "thumbnails": [{"url": thumb} for thumb in (info.get("thumbnails", [{}])[-1:] if info.get("thumbnails") else [])],
+                    "videoCount": 0,
+                    "url": info.get("channel_url", "")
+                },
+                "title": decode_html_entities(info.get("title", "")),
+                "chapters": info.get("chapters", []),
+                "description": decode_html_entities(info.get("description", "")),
+                "duration": info.get("duration", 0),
+                "likeCount": format_count(info.get("like_count")),
+                "isLiveContent": info.get("is_live", False) or info.get("was_live", False),
+                "uploadDate": format_date(info.get("upload_date", "")),
+                "viewCount": format_count(info.get("view_count")),
+            }
+            
+            # Add transcript if requested
+            if request.transcript:
+                transcript_data = await get_transcript_data(request.id, request.timestamped)
+                response.update(transcript_data)
+            
+            logger.info(f"✅ SUCCESS: Video {request.id} | {response['title']}")
+            return response
+            
+    except yt_dlp.utils.DownloadError as e:
+        error_msg = str(e)
+        logger.error(f"❌ ERROR: Failed to fetch video {request.id} | {error_msg}")
+        if "Sign in to confirm" in error_msg or "bot" in error_msg.lower():
+            raise HTTPException(status_code=403, detail="YouTube bot detection - cookies may be expired")
+        raise HTTPException(status_code=404, detail="Video not found or unavailable")
+    except Exception as e:
+        logger.error(f"❌ ERROR: Failed to fetch video {request.id} | {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/transcript")
+async def transcript(
+    request: TranscriptRequest,
+    api_key: Optional[str] = Header(None, alias="api-key")
+):
+    """Get video transcript"""
+    if not verify_api_key(api_key):
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    
+    logger.info(f"🔄 FETCH: Transcript for {request.id}")
+    
+    try:
+        transcript_data = await get_transcript_data(request.id, request.type == "timestamped")
+        transcript_text = transcript_data.get("transcript", "")
+        
+        if request.type == "timestamped":
+            transcript_text = transcript_data.get("timestamped_transcript", "")
+        
+        logger.info(f"✅ SUCCESS: Transcript {request.id} | Length: {len(transcript_text)}")
+        return {"data": transcript_text}
+        
+    except Exception as e:
+        logger.error(f"❌ ERROR: Failed to fetch transcript {request.id} | {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/video-languages")
@@ -743,5 +755,6 @@ async def general_exception_handler(request: Request, exc: Exception):
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 3000))
+    logger.info(f"🚀 Starting server on port {port}")
+    logger.info(f"🍪 Cookies: {'Enabled' if COOKIES_FILE else 'Disabled'}")
     uvicorn.run(app, host="0.0.0.0", port=port)
-
