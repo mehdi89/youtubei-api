@@ -6,8 +6,9 @@
 set -e
 
 # Server configuration (name:ip pairs)
-SERVER_NAMES=("dc1-web" "dc2-web" "dc3-web")
-SERVER_IPS=("121.200.63.141" "121.200.63.197" "103.204.80.53")
+SERVER_NAMES=("dc2-web" "dc3-web")
+# "dc1-web" "121.200.63.141" 
+SERVER_IPS=("121.200.63.197" "103.204.80.53")
 USER="oisl"
 APP_DIR="/var/www/html/youtubei-api"
 BRANCH="full-yt-dlp-conversion"  # or "master" if you've merged
