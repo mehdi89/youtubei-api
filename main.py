@@ -360,16 +360,22 @@ async def video_details(
                 raise HTTPException(status_code=404, detail="Video not found or may have been removed")
             
             # Format thumbnails to match old API
+            # Generate channel thumbnail URLs from channel_id (yt-dlp doesn't provide uploader_thumbnails)
             channel_thumbnails = []
-            uploader_thumbnails = info.get("uploader_thumbnails") or info.get("channel_thumbnails") or []
-            if uploader_thumbnails:
-                for thumb in uploader_thumbnails:
-                    if isinstance(thumb, dict):
-                        channel_thumbnails.append({
-                            "url": thumb.get("url", ""),
-                            "width": thumb.get("width", 0),
-                            "height": thumb.get("height", 0)
-                        })
+            channel_id = info.get("channel_id")
+            if channel_id:
+                # YouTube channel avatar URLs follow this pattern
+                sizes = [
+                    (48, 48),
+                    (88, 88),
+                    (176, 176)
+                ]
+                for width, height in sizes:
+                    channel_thumbnails.append({
+                        "url": f"https://yt3.ggpht.com/ytc/channel/{channel_id}=s{width}-c-k-c0x00ffffff-no-rj",
+                        "width": width,
+                        "height": height
+                    })
             
             # Format chapters to match old API (start in milliseconds with thumbnails)
             formatted_chapters = []
@@ -381,21 +387,25 @@ async def video_details(
                         "start": int(chapter.get("start_time", 0) * 1000),  # Convert to milliseconds
                     }
                     
-                    # Add thumbnails if available
+                    # Add thumbnails if available - use hqdefault thumbnails with proper dimensions
                     chapter_thumbnails = info.get("thumbnails", [])
                     if chapter_thumbnails:
-                        # Find thumbnails for this chapter timestamp
+                        # Filter thumbnails that have proper dimensions (width > 0) and use hqdefault quality
                         filtered_thumbs = []
                         for thumb in chapter_thumbnails:
-                            if isinstance(thumb, dict) and thumb.get("url"):
-                                filtered_thumbs.append({
-                                    "url": thumb.get("url", ""),
-                                    "width": thumb.get("width", 0),
-                                    "height": thumb.get("height", 0)
-                                })
+                            if isinstance(thumb, dict) and thumb.get("url") and thumb.get("width", 0) > 0:
+                                # Prefer hqdefault for consistency with old API
+                                url = thumb.get("url", "")
+                                if "hqdefault" in url:
+                                    filtered_thumbs.append({
+                                        "url": url,
+                                        "width": thumb.get("width", 0),
+                                        "height": thumb.get("height", 0)
+                                    })
                         
+                        # If we found good thumbnails, use first 2 (match old API)
                         if filtered_thumbs:
-                            chapter_data["thumbnails"] = filtered_thumbs[:2]  # Match old API
+                            chapter_data["thumbnails"] = filtered_thumbs[:2]
                     
                     formatted_chapters.append(chapter_data)
             
