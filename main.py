@@ -289,6 +289,7 @@ async def get_transcript_data(video_id: str, timestamped: bool = False) -> Dict[
 
 # API Endpoints
 @app.get("/")
+@app.head("/")  # Support HEAD requests
 async def root():
     """Root endpoint"""
     return {
@@ -311,6 +312,7 @@ async def root():
 
 
 @app.get("/api/hello")
+@app.head("/api/hello")  # Support HEAD requests for health checks
 async def hello():
     """Health check endpoint"""
     return {
