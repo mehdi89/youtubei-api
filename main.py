@@ -123,13 +123,18 @@ def format_subscriber_count(count: Optional[int]) -> str:
 
 
 def format_date(date_str: Optional[str]) -> str:
-    """Convert date to YYYY-MM-DD format"""
+    """Convert date to 'Mon DD, YYYY' format to match old API"""
     if not date_str:
         return ""
     
     # yt-dlp typically returns YYYYMMDD format
     if len(date_str) == 8 and date_str.isdigit():
-        return f"{date_str[0:4]}-{date_str[4:6]}-{date_str[6:8]}"
+        from datetime import datetime
+        try:
+            date_obj = datetime.strptime(date_str, "%Y%m%d")
+            return date_obj.strftime("%b %-d, %Y" if os.name != 'nt' else "%b %#d, %Y")
+        except:
+            return f"{date_str[0:4]}-{date_str[4:6]}-{date_str[6:8]}"
     
     return date_str
 
@@ -226,6 +231,17 @@ async def get_transcript_data(video_id: str, timestamped: bool = False) -> Dict[
             
             with urllib.request.urlopen(subtitle_url, timeout=10) as response:
                 subtitle_content = response.read().decode('utf-8')
+                
+                # Check if content is empty
+                if not subtitle_content or not subtitle_content.strip():
+                    return {
+                        "transcript": "",
+                        "transcript_status": {
+                            "available": False,
+                            "reason": "Subtitle content is empty"
+                        }
+                    }
+                
                 subtitle_json = json.loads(subtitle_content)
             
             # Parse events
@@ -343,26 +359,64 @@ async def video_details(
             if not info:
                 raise HTTPException(status_code=404, detail="Video not found or may have been removed")
             
-            # Build response
+            # Format thumbnails to match old API
+            channel_thumbnails = []
+            uploader_thumbnails = info.get("uploader_thumbnails") or info.get("channel_thumbnails") or []
+            if uploader_thumbnails:
+                for thumb in uploader_thumbnails:
+                    if isinstance(thumb, dict):
+                        channel_thumbnails.append({
+                            "url": thumb.get("url", ""),
+                            "width": thumb.get("width", 0),
+                            "height": thumb.get("height", 0)
+                        })
+            
+            # Format chapters to match old API (start in milliseconds with thumbnails)
+            formatted_chapters = []
+            chapters = info.get("chapters", [])
+            if chapters:
+                for chapter in chapters:
+                    chapter_data = {
+                        "title": chapter.get("title", ""),
+                        "start": int(chapter.get("start_time", 0) * 1000),  # Convert to milliseconds
+                    }
+                    
+                    # Add thumbnails if available
+                    chapter_thumbnails = info.get("thumbnails", [])
+                    if chapter_thumbnails:
+                        # Find thumbnails for this chapter timestamp
+                        filtered_thumbs = []
+                        for thumb in chapter_thumbnails:
+                            if isinstance(thumb, dict) and thumb.get("url"):
+                                filtered_thumbs.append({
+                                    "url": thumb.get("url", ""),
+                                    "width": thumb.get("width", 0),
+                                    "height": thumb.get("height", 0)
+                                })
+                        
+                        if filtered_thumbs:
+                            chapter_data["thumbnails"] = filtered_thumbs[:2]  # Match old API
+                    
+                    formatted_chapters.append(chapter_data)
+            
+            # Build response matching old API format
             response = {
                 "id": info.get("id", request.id),
                 "channel": {
-                    "id": info.get("channel_id", ""),
                     "youtube_channel_id": info.get("channel_id", ""),
                     "name": info.get("channel", "") or info.get("uploader", ""),
                     "subscriberCount": format_subscriber_count(info.get("channel_follower_count")),
-                    "thumbnails": [{"url": thumb} for thumb in (info.get("thumbnails", [{}])[-1:] if info.get("thumbnails") else [])],
-                    "videoCount": 0,
+                    "thumbnails": channel_thumbnails,
                     "url": info.get("channel_url", "")
                 },
                 "title": decode_html_entities(info.get("title", "")),
-                "chapters": info.get("chapters", []),
+                "chapters": formatted_chapters,
                 "description": decode_html_entities(info.get("description", "")),
-                "duration": info.get("duration", 0),
-                "likeCount": format_count(info.get("like_count")),
+                "duration": int(info.get("duration", 0)),
+                "likeCount": info.get("like_count", 0) or 0,  # Keep actual like count
                 "isLiveContent": info.get("is_live", False) or info.get("was_live", False),
                 "uploadDate": format_date(info.get("upload_date", "")),
-                "viewCount": format_count(info.get("view_count")),
+                "viewCount": info.get("view_count", 0) or 0,
             }
             
             # Add transcript if requested
