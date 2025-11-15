@@ -11,9 +11,9 @@ echo "================================================"
 echo ""
 
 # Configuration
-SERVERS=("95.217.119.125" "65.109.16.126")
-USER="forge"
-APP_DIR="/home/forge/app.tubeonai.com"  # Adjust this to your actual path
+SERVERS=("121.200.63.141" "103.204.80.53" "121.200.63.197")  # Fixed: removed comma
+USER="oisl"
+APP_DIR="/var/www/html/youtubei-api"  # Fixed: removed trailing slash
 COOKIE_FILE="youtube_cookies.txt"
 
 # Colors
