@@ -105,7 +105,8 @@ for i in "${!SERVER_NAMES[@]}"; do
     # Upload cookies only (not in git)
     if [ -f "$COOKIE_FILE" ]; then
         echo -n "2. Uploading cookies... "
-        ssh -t ${USER}@${server} "sudo rm -rf ${APP_DIR}/youtube_cookies.txt 2>/dev/null || true" > /dev/null 2>&1 || true
+        # Try to remove old file without sudo first, use sudo only if needed
+        ssh ${USER}@${server} "rm -f ${APP_DIR}/youtube_cookies.txt 2>/dev/null || sudo rm -rf ${APP_DIR}/youtube_cookies.txt 2>/dev/null || true" > /dev/null 2>&1
         scp -q "$COOKIE_FILE" ${USER}@${server}:${APP_DIR}/ && echo "✓" || echo "✗"
     else
         echo "2. ⚠ No cookies file found"
