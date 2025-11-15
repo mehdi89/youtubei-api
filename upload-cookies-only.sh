@@ -2,7 +2,12 @@
 
 # Simple upload-only script (no sudo needed if permissions are fixed)
 
-SERVERS=("121.200.63.141" "103.204.80.53" "121.200.63.197")
+# Server configuration
+declare -A SERVERS=(
+    ["dc1-web"]="121.200.63.141"
+    ["dc2-web"]="121.200.63.197"
+    ["dc3-web"]="103.204.80.53"
+)
 USER="oisl"
 APP_DIR="/var/www/html/youtubei-api"
 COOKIE_FILE="youtube_cookies.txt"
@@ -20,9 +25,10 @@ fi
 SUCCESS=0
 TOTAL=${#SERVERS[@]}
 
-for server in "${SERVERS[@]}"; do
+for name in "${!SERVERS[@]}"; do
+    server="${SERVERS[$name]}"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "Server: $server"
+    echo "Server: $name ($server)"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     
     # Upload cookies
@@ -45,6 +51,7 @@ for server in "${SERVERS[@]}"; do
     if [ -z "$CONTAINER" ]; then
         echo "✗ Not found"
         echo "  Run: ssh ${USER}@${server} 'cd ${APP_DIR} && docker-compose up -d'"
+        echo "  ($name: ${server})"
         continue
     fi
     

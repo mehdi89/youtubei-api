@@ -5,7 +5,12 @@
 
 set -e
 
-SERVERS=("121.200.63.141" "103.204.80.53" "121.200.63.197")
+# Server configuration
+declare -A SERVERS=(
+    ["dc1-web"]="121.200.63.141"
+    ["dc2-web"]="121.200.63.197"
+    ["dc3-web"]="103.204.80.53"
+)
 USER="oisl"
 APP_DIR="/var/www/html/youtubei-api"
 BRANCH="full-yt-dlp-conversion"  # or "master" if you've merged
@@ -22,8 +27,8 @@ echo "  4. Rebuild containers with new Python version"
 echo "  5. Verify deployment"
 echo ""
 echo "Servers:"
-for server in "${SERVERS[@]}"; do
-    echo "  - ${USER}@${server}"
+for name in "${!SERVERS[@]}"; do
+    echo "  - $name (${USER}@${SERVERS[$name]})"
 done
 echo ""
 echo "⚠  This will replace the Node.js version with Python FastAPI"
@@ -32,16 +37,17 @@ read -p "Press Enter to continue or Ctrl+C to cancel..."
 
 SUCCESS_COUNT=0
 
-for server in "${SERVERS[@]}"; do
+for name in "${!SERVERS[@]}"; do
+    server="${SERVERS[$name]}"
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "  Deploying to: $server"
+    echo "  Deploying to: $name ($server)"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
     
     # Check connection
     if ! ssh -o ConnectTimeout=10 ${USER}@${server} "echo 'Connected'"; then
-        echo "✗ Cannot connect to $server"
+        echo "✗ Cannot connect to $name ($server)"
         continue
     fi
     
@@ -140,8 +146,8 @@ if [ $SUCCESS_COUNT -gt 0 ]; then
     echo "✅ Deployment completed!"
     echo ""
     echo "Test your API:"
-    for server in "${SERVERS[@]}"; do
-        echo "  curl http://${server}:3000/api/hello"
+    for name in "${!SERVERS[@]}"; do
+        echo "  $name: curl http://${SERVERS[$name]}:3000/api/hello"
     done
 else
     echo "⚠ Deployment failed on all servers"
