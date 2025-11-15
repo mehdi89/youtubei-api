@@ -41,8 +41,8 @@ if [ "$COOKIES_ONLY" = true ]; then
         echo "Updating: $name ($server)"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         
-        # Clean up and upload
-        ssh -t ${USER}@${server} "sudo rm -rf ${APP_DIR}/youtube_cookies.txt 2>/dev/null || true" || true
+        # Clean up and upload (try without sudo first)
+        ssh ${USER}@${server} "rm -f ${APP_DIR}/youtube_cookies.txt 2>/dev/null || true" > /dev/null 2>&1
         scp -q "$COOKIE_FILE" "${USER}@${server}:${APP_DIR}/" && echo "✓ Uploaded"
         
         # Restart container
