@@ -102,14 +102,13 @@ for i in "${!SERVER_NAMES[@]}"; do
     echo -n "1. Pulling code... "
     ssh ${USER}@${server} "cd ${APP_DIR} && git fetch && git checkout ${BRANCH} && git pull" > /dev/null 2>&1 && echo "✓" || echo "⚠"
     
-    # Upload files
-    echo "2. Uploading files..."
-    scp -q main.py requirements.txt Dockerfile docker-compose.yml ${USER}@${server}:${APP_DIR}/ && echo "   ✓ Core files"
-    
-    # Upload cookies
+    # Upload cookies only (not in git)
     if [ -f "$COOKIE_FILE" ]; then
+        echo -n "2. Uploading cookies... "
         ssh -t ${USER}@${server} "sudo rm -rf ${APP_DIR}/youtube_cookies.txt 2>/dev/null || true" > /dev/null 2>&1 || true
-        scp -q "$COOKIE_FILE" ${USER}@${server}:${APP_DIR}/ && echo "   ✓ Cookies"
+        scp -q "$COOKIE_FILE" ${USER}@${server}:${APP_DIR}/ && echo "✓" || echo "✗"
+    else
+        echo "2. ⚠ No cookies file found"
     fi
     
     # Rebuild
@@ -123,8 +122,10 @@ for i in "${!SERVER_NAMES[@]}"; do
     ssh ${USER}@${server} "cd ${APP_DIR} && (docker compose up -d prod || docker-compose up -d prod)" > /dev/null 2>&1 && echo "✓"
     
     # Wait and verify
-    echo -n "6. Verifying... "
-    sleep 15
+    echo -n "6. Waiting... "
+    sleep 15 && echo "✓"
+    
+    echo -n "7. Verifying... "
     
     if ssh ${USER}@${server} "docker ps | grep -q youtubei-api-prod" && \
        ssh ${USER}@${server} "curl -s http://localhost:3000/api/hello 2>/dev/null | grep -q cookies_enabled"; then
