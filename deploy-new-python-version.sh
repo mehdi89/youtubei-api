@@ -69,6 +69,10 @@ for i in "${!SERVER_NAMES[@]}"; do
     
     # Upload cookies
     if [ -f "youtube_cookies.txt" ]; then
+        # Remove youtube_cookies.txt if it's a directory (Docker creates this)
+        echo "  → Cleaning up old youtube_cookies.txt..."
+        ssh -t ${USER}@${server} "sudo rm -rf ${APP_DIR}/youtube_cookies.txt 2>/dev/null || true" || true
+        
         scp youtube_cookies.txt ${USER}@${server}:${APP_DIR}/ && echo "  ✓ youtube_cookies.txt"
     else
         echo "  ⚠ youtube_cookies.txt not found locally"
@@ -77,16 +81,16 @@ for i in "${!SERVER_NAMES[@]}"; do
     # Step 3: Stop old containers
     echo ""
     echo "3. Stopping old containers..."
-    ssh ${USER}@${server} "cd ${APP_DIR} && docker-compose down" || echo "  ℹ No running containers"
+    ssh ${USER}@${server} "cd ${APP_DIR} && (docker compose down 2>/dev/null || docker-compose down 2>/dev/null || echo '  ℹ No running containers')"
     
     # Step 4: Build and start new Python version
     echo ""
     echo "4. Building new Python containers (this may take a few minutes)..."
-    ssh ${USER}@${server} "cd ${APP_DIR} && docker-compose build prod" && echo "  ✓ Build complete"
+    ssh ${USER}@${server} "cd ${APP_DIR} && (docker compose build prod || docker-compose build prod)" && echo "  ✓ Build complete"
     
     echo ""
     echo "5. Starting new containers..."
-    ssh ${USER}@${server} "cd ${APP_DIR} && docker-compose up -d prod" && echo "  ✓ Started"
+    ssh ${USER}@${server} "cd ${APP_DIR} && (docker compose up -d prod || docker-compose up -d prod)" && echo "  ✓ Started"
     
     # Wait for startup
     echo ""
