@@ -26,9 +26,9 @@ COPY youtube_cookies.txt* ./
 # Expose port
 EXPOSE 3000
 
-# Health check
+# Health check (using curl with GET instead of wget HEAD)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/hello || exit 1
+    CMD curl -f http://localhost:3000/api/hello || exit 1
 
 # Run the application
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3000"]
