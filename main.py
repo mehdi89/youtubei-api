@@ -52,7 +52,7 @@ possible_cookie_paths = [
     "./youtube_cookies.txt"
 ]
 for cookie_path in possible_cookie_paths:
-    if os.path.exists(cookie_path):
+    if os.path.isfile(cookie_path):  # Check it's a file, not a directory
         COOKIES_FILE = cookie_path
         logger.info(f"✅ Found cookies file: {cookie_path}")
         break
@@ -153,8 +153,8 @@ def get_ytdlp_opts(extract_flat: bool = False) -> Dict[str, Any]:
         }
     }
     
-    # Add cookies if available
-    if COOKIES_FILE:
+    # Add cookies if available and is a valid file
+    if COOKIES_FILE and os.path.isfile(COOKIES_FILE):
         opts['cookiefile'] = COOKIES_FILE
     
     return opts
