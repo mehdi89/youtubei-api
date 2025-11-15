@@ -1,13 +1,10 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Simple upload-only script (no sudo needed if permissions are fixed)
 
-# Server configuration
-declare -A SERVERS=(
-    ["dc1-web"]="121.200.63.141"
-    ["dc2-web"]="121.200.63.197"
-    ["dc3-web"]="103.204.80.53"
-)
+# Server configuration (name:ip pairs)
+SERVER_NAMES=("dc1-web" "dc2-web" "dc3-web")
+SERVER_IPS=("121.200.63.141" "121.200.63.197" "103.204.80.53")
 USER="oisl"
 APP_DIR="/var/www/html/youtubei-api"
 COOKIE_FILE="youtube_cookies.txt"
@@ -23,10 +20,11 @@ if [ ! -f "$COOKIE_FILE" ]; then
 fi
 
 SUCCESS=0
-TOTAL=${#SERVERS[@]}
+TOTAL=${#SERVER_NAMES[@]}
 
-for name in "${!SERVERS[@]}"; do
-    server="${SERVERS[$name]}"
+for i in "${!SERVER_NAMES[@]}"; do
+    name="${SERVER_NAMES[$i]}"
+    server="${SERVER_IPS[$i]}"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "Server: $name ($server)"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

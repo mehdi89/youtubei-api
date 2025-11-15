@@ -1,16 +1,13 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Complete deployment script for new Python FastAPI version
 # This replaces the old Node.js version with the new Python version
 
 set -e
 
-# Server configuration
-declare -A SERVERS=(
-    ["dc1-web"]="121.200.63.141"
-    ["dc2-web"]="121.200.63.197"
-    ["dc3-web"]="103.204.80.53"
-)
+# Server configuration (name:ip pairs)
+SERVER_NAMES=("dc1-web" "dc2-web" "dc3-web")
+SERVER_IPS=("121.200.63.141" "121.200.63.197" "103.204.80.53")
 USER="oisl"
 APP_DIR="/var/www/html/youtubei-api"
 BRANCH="full-yt-dlp-conversion"  # or "master" if you've merged
@@ -27,8 +24,8 @@ echo "  4. Rebuild containers with new Python version"
 echo "  5. Verify deployment"
 echo ""
 echo "Servers:"
-for name in "${!SERVERS[@]}"; do
-    echo "  - $name (${USER}@${SERVERS[$name]})"
+for i in "${!SERVER_NAMES[@]}"; do
+    echo "  - ${SERVER_NAMES[$i]} (${USER}@${SERVER_IPS[$i]})"
 done
 echo ""
 echo "⚠  This will replace the Node.js version with Python FastAPI"
@@ -37,8 +34,9 @@ read -p "Press Enter to continue or Ctrl+C to cancel..."
 
 SUCCESS_COUNT=0
 
-for name in "${!SERVERS[@]}"; do
-    server="${SERVERS[$name]}"
+for i in "${!SERVER_NAMES[@]}"; do
+    name="${SERVER_NAMES[$i]}"
+    server="${SERVER_IPS[$i]}"
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "  Deploying to: $name ($server)"
@@ -139,15 +137,15 @@ echo "================================================"
 echo "  Deployment Summary"
 echo "================================================"
 echo ""
-echo "Successfully deployed to: $SUCCESS_COUNT/${#SERVERS[@]} servers"
+echo "Successfully deployed to: $SUCCESS_COUNT/${#SERVER_NAMES[@]} servers"
 echo ""
 
 if [ $SUCCESS_COUNT -gt 0 ]; then
     echo "✅ Deployment completed!"
     echo ""
     echo "Test your API:"
-    for name in "${!SERVERS[@]}"; do
-        echo "  $name: curl http://${SERVERS[$name]}:3000/api/hello"
+    for i in "${!SERVER_NAMES[@]}"; do
+        echo "  ${SERVER_NAMES[$i]}: curl http://${SERVER_IPS[$i]}:3000/api/hello"
     done
 else
     echo "⚠ Deployment failed on all servers"

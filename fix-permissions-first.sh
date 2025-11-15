@@ -1,14 +1,11 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Simple script to fix permissions FIRST (with password prompts)
 # Then you can run the upload script
 
-# Server configuration
-declare -A SERVERS=(
-    ["dc1-web"]="121.200.63.141"
-    ["dc2-web"]="121.200.63.197"
-    ["dc3-web"]="103.204.80.53"
-)
+# Server configuration (name:ip pairs)
+SERVER_NAMES=("dc1-web" "dc2-web" "dc3-web")
+SERVER_IPS=("121.200.63.141" "121.200.63.197" "103.204.80.53")
 USER="oisl"
 APP_DIR="/var/www/html/youtubei-api"
 
@@ -19,8 +16,9 @@ echo ""
 echo "This will prompt for sudo password on each server."
 echo ""
 
-for name in "${!SERVERS[@]}"; do
-    server="${SERVERS[$name]}"
+for i in "${!SERVER_NAMES[@]}"; do
+    name="${SERVER_NAMES[$i]}"
+    server="${SERVER_IPS[$i]}"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "Fixing permissions on: $name ($server)"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
