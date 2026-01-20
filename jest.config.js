@@ -8,6 +8,10 @@ module.exports = {
   transform: {
     '^.+\\.(js|jsx|ts|tsx)$': ['babel-jest', { presets: ['next/babel'] }],
   },
+  // Transform youtubei.js since it uses ESM
+  transformIgnorePatterns: [
+    '/node_modules/(?!(youtubei\\.js)/)',
+  ],
   collectCoverageFrom: [
     'src/**/*.{js,jsx,ts,tsx}',
     '!src/**/*.d.ts',
