@@ -13,23 +13,15 @@ jest.mock('@/utils/youtube-transcript/dist/youtube-transcript.common.js', () => 
   },
 }))
 
-// Mock youtubei.js - create fresh instance each time
-jest.mock('youtubei.js', () => ({
-  Innertube: {
-    create: jest.fn().mockImplementation(() => Promise.resolve({
-      getInfo: mockGetInfo,
-    })),
-  },
-  Log: {
-    setLevel: jest.fn(),
-    Level: {
-      NONE: 0,
-      ERROR: 1,
-      WARNING: 2,
-      INFO: 3,
-      DEBUG: 4,
-    },
-  },
+// Mock the shared innertube utility
+jest.mock('@/utils/innertube', () => ({
+  getInnertube: jest.fn().mockImplementation(() => Promise.resolve({
+    getInfo: mockGetInfo,
+  })),
+  resetInnertube: jest.fn(),
+  decodeEntities: jest.fn((str) => str || ''),
+  selectBestLanguage: jest.fn((langs) => langs?.[0] || null),
+  HIGH_CONFIDENCE_LANGUAGES: ['en', 'es', 'fr', 'de', 'it', 'pt', 'nl', 'sv', 'da', 'fi', 'no'],
 }))
 
 describe('Video Details API', () => {

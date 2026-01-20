@@ -1,0 +1,148 @@
+{
+  "description": "Comprehensive YouTube test dataset for regression testing",
+  "version": "1.0.0",
+  "lastUpdated": "2026-01-20",
+  "testCases": {
+    "video-details": [
+      {
+        "id": "dQw4w9WgXcQ",
+        "name": "Standard video with transcript",
+        "type": "standard",
+        "expectedFields": ["id", "title", "channel", "duration", "viewCount"],
+        "transcript": {
+          "expected": true,
+          "language": "en"
+        }
+      },
+      {
+        "id": "7aHulP30Mp0",
+        "name": "Video with chapters and multiple languages",
+        "type": "chapters",
+        "expectedFields": ["id", "title", "chapters"],
+        "transcript": {
+          "expected": true,
+          "multiLanguage": true
+        },
+        "notes": "Has 5 languages: zh-Hans, zh-Hant, en, ja, ko"
+      },
+      {
+        "id": "ErGQHIp_-9w",
+        "name": "YouTube Short",
+        "type": "short",
+        "expectedFields": ["id", "title", "duration"],
+        "notes": "Short-form vertical video"
+      },
+      {
+        "id": "jNQXAC9IVRw",
+        "name": "First YouTube video ever (Me at the zoo)",
+        "type": "historic",
+        "expectedFields": ["id", "title", "channel"],
+        "transcript": {
+          "expected": true
+        }
+      },
+      {
+        "id": "9bZkp7q19f0",
+        "name": "Music video (Gangnam Style)",
+        "type": "music",
+        "expectedFields": ["id", "title", "viewCount"],
+        "transcript": {
+          "expected": true
+        },
+        "notes": "High view count music video"
+      },
+      {
+        "id": "EngW7tLk6R8",
+        "name": "Long-form podcast/interview (2+ hours)",
+        "type": "longform",
+        "expectedFields": ["id", "title", "duration"],
+        "transcript": {
+          "expected": true
+        },
+        "notes": "Tests handling of very long transcripts"
+      }
+    ],
+    "error-handling": [
+      {
+        "id": "xxxxxxxxxxx",
+        "name": "Non-existent video",
+        "type": "error",
+        "expectedError": 404,
+        "notes": "Should return 404 not found"
+      },
+      {
+        "id": "BaW_jenozKc",
+        "name": "Private video (may vary)",
+        "type": "error",
+        "expectedError": 403,
+        "notes": "Private videos should return 403"
+      }
+    ],
+    "transcript-only": [
+      {
+        "id": "b-BzeHF6WLA",
+        "name": "Video with English captions",
+        "type": "transcript",
+        "expectedLanguages": ["en", "en-US"]
+      },
+      {
+        "id": "oDgCMaxHPRY",
+        "name": "Video with single language",
+        "type": "transcript",
+        "expectedLanguages": ["en"]
+      }
+    ],
+    "live-content": [
+      {
+        "id": "jfKfPfyJRdk",
+        "name": "Lofi Girl - 24/7 live stream",
+        "type": "live",
+        "isLive": true,
+        "transcript": {
+          "expected": false,
+          "reason": "live_content"
+        },
+        "notes": "Popular 24/7 live stream, no transcript expected"
+      }
+    ],
+    "channel-details": [
+      {
+        "id": "UC-lHJZR3Gqxm24_Vd_AJ5Yw",
+        "name": "PewDiePie channel",
+        "type": "channel",
+        "expectedFields": ["id", "name", "subscriberCount"]
+      },
+      {
+        "id": "UCX6OQ3DkcsbYNE6H8uQQuVA",
+        "name": "MrBeast channel",
+        "type": "channel",
+        "expectedFields": ["id", "name", "subscriberCount", "videosCount"]
+      }
+    ],
+    "search": [
+      {
+        "query": "javascript tutorial",
+        "type": "video",
+        "minResults": 1
+      },
+      {
+        "query": "coding",
+        "type": "channel",
+        "minResults": 1
+      },
+      {
+        "query": "learn programming",
+        "type": "playlist",
+        "minResults": 1
+      }
+    ],
+    "playlist": [
+      {
+        "id": "PLRqwX-V7Uu6ZF9C0YMKuns9sLDzK6zoiV",
+        "name": "Coding Train playlist",
+        "type": "playlist",
+        "minVideos": 5
+      }
+    ]
+  }
+}

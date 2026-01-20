@@ -1,47 +1,17 @@
 import logger from "@/utils/logger";
 import { YoutubeTranscript } from '@/utils/youtube-transcript/dist/youtube-transcript.common.js';
-import { Innertube, Log } from 'youtubei.js';
-
-// Suppress youtubei.js parser warnings (they're non-fatal)
-Log.setLevel(Log.Level.NONE);
+import { 
+  getInnertube, 
+  decodeEntities, 
+  selectBestLanguage,
+  HIGH_CONFIDENCE_LANGUAGES 
+} from '@/utils/innertube';
 
 // Get API key from environment variables
 const API_KEY = process.env.YOUTUBE_API_KEY;
 
 if (!API_KEY) {
   logger.error("YOUTUBE_API_KEY environment variable is not set!");
-}
-
-// Singleton Innertube instance (reused across requests)
-let innertubeInstance = null;
-
-async function getInnertube() {
-  if (!innertubeInstance) {
-    logger.info('Creating new Innertube instance');
-    innertubeInstance = await Innertube.create({
-      generate_session_locally: true,
-    });
-  }
-  return innertubeInstance;
-}
-
-function decodeEntities(encodedString) {
-  var translate_re = /&(nbsp|amp|quot|lt|gt);/g;
-  var translate = {
-    nbsp: ' ',
-    amp: '&',
-    quot: '"',
-    lt: '<',
-    gt: '>',
-  };
-  return encodedString
-    .replace(translate_re, function (match, entity) {
-      return translate[entity];
-    })
-    .replace(/&#(\d+);/gi, function (match, numStr) {
-      var num = parseInt(numStr, 10);
-      return String.fromCharCode(num);
-    });
 }
 
 export default async function handler(req, res) {
@@ -241,8 +211,6 @@ async function fetchTranscript(video, videoId) {
 
 async function fetchTimestampedTranscript(videoId) {
   try {
-    const highConfidenceLangs = ['en', 'es', 'fr', 'de', 'it', 'pt', 'nl', 'sv', 'da', 'fi', 'no'];
-
     let selectedLang = null;
     let availableLangCodes = [];
 
@@ -257,17 +225,8 @@ async function fetchTimestampedTranscript(videoId) {
       logger.warn(`Could not list transcripts`, `Video: ${videoId}`);
     }
 
-    // Select best language
-    if (availableLangCodes.includes('en')) {
-      selectedLang = 'en';
-    } else {
-      const found = highConfidenceLangs.find(code => availableLangCodes.includes(code));
-      if (found) {
-        selectedLang = found;
-      } else if (availableLangCodes.length > 0) {
-        selectedLang = availableLangCodes[0];
-      }
-    }
+    // Select best language using shared utility
+    selectedLang = selectBestLanguage(availableLangCodes);
 
     if (selectedLang) {
       logger.info(`Selected language`, `Language: ${selectedLang}`);

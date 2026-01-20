@@ -1,41 +1,11 @@
-import { Innertube, Log } from 'youtubei.js';
 import { YoutubeTranscript } from '@/utils/youtube-transcript/dist/youtube-transcript.common.js';
 import logger from "@/utils/logger";
-
-// Suppress youtubei.js parser warnings (they're non-fatal)
-Log.setLevel(Log.Level.NONE);
-
-// Singleton Innertube instance
-let innertubeInstance = null;
-
-async function getInnertube() {
-  if (!innertubeInstance) {
-    logger.info('Creating new Innertube instance for transcript');
-    innertubeInstance = await Innertube.create({
-      generate_session_locally: true,
-    });
-  }
-  return innertubeInstance;
-}
-
-function decodeEntities(encodedString) {
-  var translate_re = /&(nbsp|amp|quot|lt|gt);/g;
-  var translate = {
-    nbsp: ' ',
-    amp: '&',
-    quot: '"',
-    lt: '<',
-    gt: '>',
-  };
-  return encodedString
-    .replace(translate_re, function (match, entity) {
-      return translate[entity];
-    })
-    .replace(/&#(\d+);/gi, function (match, numStr) {
-      var num = parseInt(numStr, 10);
-      return String.fromCharCode(num);
-    });
-}
+import { 
+  getInnertube, 
+  decodeEntities, 
+  selectBestLanguage,
+  HIGH_CONFIDENCE_LANGUAGES 
+} from '@/utils/innertube';
 
 async function getTranscriptLanguages(videoId) {
   try {
@@ -96,9 +66,6 @@ export default async function handler(req, res) {
     return res.status(400).json({ message: 'Video ID is required' });
   }
 
-  // High-confidence languages for OpenAI extraction
-  const highConfidenceLangs = ['en', 'es', 'fr', 'de', 'it', 'pt', 'nl', 'sv', 'da', 'fi', 'no'];
-
   let selectedLang = null;
   let availableLangCodes = [];
 
@@ -109,24 +76,12 @@ export default async function handler(req, res) {
     if (availableLangCodes.length > 0) {
       logger.info(`Available languages`, `Codes: ${availableLangCodes.join(', ')}`);
       
-      // 1. Prefer English
-      if (availableLangCodes.includes('en')) {
-        selectedLang = 'en';
-      } else {
-        // 2. Try high-confidence languages
-        const found = highConfidenceLangs.find(code => availableLangCodes.includes(code));
-        if (found) {
-          selectedLang = found;
-        } else if (availableLangCodes.length === 1) {
-          // 3. Only one language, use it
-          selectedLang = availableLangCodes[0];
-        } else if (availableLangCodes.length > 1) {
-          // 4. Fallback: use the first available
-          selectedLang = availableLangCodes[0];
-        }
-      }
+      // Use shared language selection utility
+      selectedLang = selectBestLanguage(availableLangCodes);
       
-      logger.info(`Selected language`, `Language: ${selectedLang}`);
+      if (selectedLang) {
+        logger.info(`Selected language`, `Language: ${selectedLang}`);
+      }
     }
 
     const options = selectedLang ? { lang: selectedLang } : {};
