@@ -1,12 +1,28 @@
 import { createMocks } from 'node-mocks-http'
-import searchHandler from '../search'
-import youtubei from '@/utils/youtubei'
+
+// Create mock functions at module level
+const mockSearch = jest.fn()
+
+// Mock the shared innertube utility
+jest.mock('@/utils/innertube', () => ({
+  getInnertube: jest.fn().mockImplementation(() => Promise.resolve({
+    search: mockSearch,
+  })),
+  resetInnertube: jest.fn(),
+  decodeEntities: jest.fn((str) => str || ''),
+  selectBestLanguage: jest.fn((langs) => langs?.[0] || null),
+  HIGH_CONFIDENCE_LANGUAGES: ['en', 'es', 'fr', 'de', 'it', 'pt', 'nl', 'sv', 'da', 'fi', 'no'],
+}))
 
 describe('Search API', () => {
   const API_KEY = process.env.YOUTUBE_API_KEY;
+  let searchHandler;
 
   beforeEach(() => {
     jest.clearAllMocks()
+    mockSearch.mockReset()
+    jest.resetModules()
+    searchHandler = require('../search').default
   })
 
   it('returns 405 for non-POST requests', async () => {
@@ -34,27 +50,60 @@ describe('Search API', () => {
     expect(res._getStatusCode()).toBe(401)
   })
 
+  it('returns 400 for missing query', async () => {
+    const { req, res } = createMocks({
+      method: 'POST',
+      headers: {
+        'api-key': API_KEY,
+      },
+      body: {
+        type: 'video',
+      },
+    })
+
+    await searchHandler(req, res)
+    expect(res._getStatusCode()).toBe(400)
+  })
+
+  it('returns 400 for invalid search type', async () => {
+    const { req, res } = createMocks({
+      method: 'POST',
+      headers: {
+        'api-key': API_KEY,
+      },
+      body: {
+        query: 'test',
+        type: 'invalid',
+      },
+    })
+
+    await searchHandler(req, res)
+    expect(res._getStatusCode()).toBe(400)
+  })
+
   it('successfully searches for videos', async () => {
     const mockSearchResults = {
-      items: [
+      results: [
         {
+          type: 'Video',
           id: 'video1',
-          title: 'Test Video',
-          duration: '10:00',
-          description: 'Test Description',
-          isLive: false,
-          viewCount: 1000,
-          uploadDate: '2023-01-01',
-          channel: {
+          title: { text: 'Test Video' },
+          duration: { text: '10:00' },
+          description_snippet: { text: 'Test Description' },
+          is_live: false,
+          view_count: { text: '1,000 views' },
+          published: { text: '1 day ago' },
+          author: {
             name: 'Test Channel',
             id: 'channel1',
             thumbnails: [{ url: 'thumbnail.jpg' }],
           },
         },
       ],
+      has_continuation: false,
     }
 
-    youtubei.search.mockResolvedValueOnce(mockSearchResults)
+    mockSearch.mockResolvedValueOnce(mockSearchResults)
 
     const { req, res } = createMocks({
       method: 'POST',
@@ -70,12 +119,14 @@ describe('Search API', () => {
     await searchHandler(req, res)
 
     expect(res._getStatusCode()).toBe(200)
-    expect(JSON.parse(res._getData())).toHaveLength(1)
-    expect(youtubei.search).toHaveBeenCalledWith('test video', { type: 'video' })
+    const data = JSON.parse(res._getData())
+    expect(data).toHaveLength(1)
+    expect(data[0].id).toBe('video1')
+    expect(data[0].title).toBe('Test Video')
   })
 
   it('returns 404 when no results found', async () => {
-    youtubei.search.mockResolvedValueOnce({ items: [] })
+    mockSearch.mockResolvedValueOnce({ results: [] })
 
     const { req, res } = createMocks({
       method: 'POST',
@@ -91,4 +142,4 @@ describe('Search API', () => {
     await searchHandler(req, res)
     expect(res._getStatusCode()).toBe(404)
   })
-}) 
+})

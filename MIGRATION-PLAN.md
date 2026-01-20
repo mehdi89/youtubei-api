@@ -4,18 +4,21 @@
 
 This document outlines the plan to migrate all API endpoints from the legacy `youtubei` library to the actively maintained `youtubei.js` library.
 
-## Current State
+## ✅ MIGRATION COMPLETE
+
+All endpoints have been successfully migrated to `youtubei.js`.
 
 | File | Library | Status |
 |------|---------|--------|
 | `video-details.js` | `youtubei.js` | ✅ Migrated |
 | `transcript.js` | `youtubei.js` | ✅ Migrated |
-| `search.js` | `youtubei` (old) | ⏳ Pending |
-| `channel-details.js` | `youtubei` (old) | ⏳ Pending |
-| `channel-videos.js` | `youtubei` (old) | ⏳ Pending |
-| `channel-live-videos.js` | `youtubei` (old) | ⏳ Pending |
-| `playlist.js` | `youtubei` (old) | ⏳ Pending |
-| `video-languages.js` | Unknown | ⏳ Needs review |
+| `search.js` | `youtubei.js` | ✅ Migrated |
+| `channel-details.js` | `youtubei.js` | ✅ Migrated |
+| `channel-videos.js` | `youtubei.js` | ✅ Migrated |
+| `channel-live-videos.js` | `youtubei.js` | ✅ Migrated |
+| `playlist.js` | `youtubei.js` | ✅ Migrated |
+
+**See [NEW-FEATURES.md](./NEW-FEATURES.md) for documentation on all new API features.**
 
 ## Why Migrate?
 
