@@ -14,6 +14,7 @@ if (typeof globalThis.localStorage === 'undefined') {
 import logger from "@/utils/logger";
 import { YoutubeTranscript } from '@/utils/youtube-transcript/dist/youtube-transcript.common.js';
 import { Client } from 'youtubei';
+import axios from 'axios';
 
 
 // Get API key from environment variables
@@ -114,6 +115,44 @@ export default async function handler(req, res) {
   }
 }
 
+// Fallback method using YouTube's noembed/oembed API
+async function fetchVideoFallback(id) {
+  logger.info(`Using fallback method for video`, `Video: ${id}`);
+  try {
+    const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`;
+    const response = await axios.get(oembedUrl, { timeout: 10000 });
+    
+    if (response.data && response.data.title) {
+      // Return a minimal video object compatible with formatResponse
+      return {
+        id: id,
+        title: response.data.title,
+        channel: {
+          id: null,
+          name: response.data.author_name,
+          subscriberCount: null,
+          thumbnails: [],
+          videoCount: null,
+          url: response.data.author_url,
+        },
+        chapters: [],
+        description: null,
+        duration: null,
+        likeCount: null,
+        isLiveContent: false,
+        uploadDate: null,
+        viewCount: null,
+        captions: null, // Mark as no captions available via fallback
+        _fallback: true, // Flag to indicate fallback was used
+      };
+    }
+    throw new Error('Invalid oembed response');
+  } catch (error) {
+    logger.error(`Fallback also failed for ${id}`, error.message);
+    throw new CustomError("Video not found or unavailable", 404);
+  }
+}
+
 async function fetchVideo(_, id) {
   try {
     if (!id) {
@@ -140,10 +179,11 @@ async function fetchVideo(_, id) {
 
       return video;
     } catch (error) {
-      // Handle specific error cases
-      if (error.message?.includes('videoId') || error.message?.includes('Cannot read properties')) {
-        logger.error(`API access error for ${id}`, error.message);
-        throw new CustomError("Unable to access YouTube data. This could be due to API restrictions or rate limiting.", 429);
+      // For parser errors (multiMarkersPlayerBarRenderer, etc.), try fallback
+      if (error.message?.includes('Cannot read properties') || 
+          error.message?.includes('undefined is not an object')) {
+        logger.warn(`Parser error for ${id}, trying fallback`, error.message);
+        return await fetchVideoFallback(id);
       }
       
       if (error.message?.includes('network') || error.message?.includes('timeout')) {
@@ -155,8 +195,9 @@ async function fetchVideo(_, id) {
         throw error;
       }
 
-      logger.error(`Unexpected error for ${id}`, error.message);
-      throw new CustomError("An unexpected error occurred while fetching the video", 500);
+      // For other errors, also try fallback
+      logger.warn(`Unexpected error for ${id}, trying fallback`, error.message);
+      return await fetchVideoFallback(id);
     }
   } catch (error) {
     if (error instanceof CustomError) {
