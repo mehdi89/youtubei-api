@@ -1,19 +1,19 @@
-// Polyfill localStorage for server-side (youtubei uses it for caching)
-if (typeof globalThis.localStorage === 'undefined') {
-  const localStorageData = {};
-  globalThis.localStorage = {
-    getItem: (key) => localStorageData[key] || null,
-    setItem: (key, value) => { localStorageData[key] = String(value); },
-    removeItem: (key) => { delete localStorageData[key]; },
-    clear: () => { Object.keys(localStorageData).forEach(k => delete localStorageData[k]); },
-    get length() { return Object.keys(localStorageData).length; },
-    key: (i) => Object.keys(localStorageData)[i] || null
-  };
-}
-
-import { Client } from 'youtubei';
+import { Innertube } from 'youtubei.js';
 import { YoutubeTranscript } from '@/utils/youtube-transcript/dist/youtube-transcript.common.js';
 import logger from "@/utils/logger";
+
+// Singleton Innertube instance
+let innertubeInstance = null;
+
+async function getInnertube() {
+  if (!innertubeInstance) {
+    logger.info('Creating new Innertube instance for transcript');
+    innertubeInstance = await Innertube.create({
+      generate_session_locally: true,
+    });
+  }
+  return innertubeInstance;
+}
 
 function decodeEntities(encodedString) {
   var translate_re = /&(nbsp|amp|quot|lt|gt);/g;
@@ -36,20 +36,40 @@ function decodeEntities(encodedString) {
 
 async function getTranscriptLanguages(videoId) {
   try {
-    const youtube = new Client();
     logger.fetch(`Getting available languages`, `Video: ${videoId}`);
+    
+    // Try using YoutubeTranscript's listTranscripts first
+    try {
+      const transcriptList = await YoutubeTranscript.listTranscripts(videoId);
+      if (transcriptList && transcriptList.length > 0) {
+        const langCodes = transcriptList.map(t => t.languageCode || t.lang).filter(Boolean);
+        logger.success(`Found ${langCodes.length} languages via YoutubeTranscript`, `Video: ${videoId}`);
+        return langCodes;
+      }
+    } catch (e) {
+      // listTranscripts might not be available, try youtubei.js
+    }
 
-    const video = await youtube.getVideo(videoId);
-    if (!video || !video.captions) {
+    // Fallback to youtubei.js
+    const yt = await getInnertube();
+    const info = await yt.getInfo(videoId);
+    
+    if (!info || !info.captions) {
       logger.info(`No captions available`, `Video: ${videoId}`);
       return [];
     }
 
-    const availableCaptions = video.captions.languages || [];
-    logger.success(`Found ${availableCaptions.length} languages`, `Video: ${videoId}`);
-    return availableCaptions;
+    // Try to get caption tracks from youtubei.js
+    const captionTracks = info.captions?.caption_tracks || [];
+    if (captionTracks.length > 0) {
+      const langCodes = captionTracks.map(track => track.language_code).filter(Boolean);
+      logger.success(`Found ${langCodes.length} languages via youtubei.js`, `Video: ${videoId}`);
+      return langCodes;
+    }
+
+    return [];
   } catch (error) {
-    logger.error(`Failed to get languages`, `Video: ${videoId} | Error: ${error.message}`);
+    logger.warn(`Could not get languages, will try default`, `Video: ${videoId} | Error: ${error.message}`);
     return [];
   }
 }
@@ -78,24 +98,13 @@ export default async function handler(req, res) {
 
   let selectedLang = null;
   let availableLangCodes = [];
-  let availableLanguages = [];
 
   try {
-    // Get available languages first
-    availableLanguages = await getTranscriptLanguages(id);
-    if (availableLanguages.length > 0) {
-      logger.info(`Available languages`, `Count: ${availableLanguages.length}`);
-      // Try to extract language codes (support both string and object)
-      availableLangCodes = availableLanguages.map(l => {
-        if (typeof l === 'string') return l;
-        if (l.languageCode) return l.languageCode;
-        if (l.lang) return l.lang;
-        if (l.code) return l.code;
-        logger.warn(`Unexpected language format`, `Language: ${JSON.stringify(l)}`);
-        return null;
-      }).filter(Boolean); // Remove any null values
-
-      logger.info(`Extracted language codes`, `Codes: ${availableLangCodes.join(', ')}`);
+    // Get available languages first (this is optional, transcript will still work without it)
+    availableLangCodes = await getTranscriptLanguages(id);
+    
+    if (availableLangCodes.length > 0) {
+      logger.info(`Available languages`, `Codes: ${availableLangCodes.join(', ')}`);
       
       // 1. Prefer English
       if (availableLangCodes.includes('en')) {
