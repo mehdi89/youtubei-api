@@ -1,27 +1,25 @@
-// Polyfill localStorage for server-side (youtubei uses it for caching)
-if (typeof globalThis.localStorage === 'undefined') {
-  const localStorageData = {};
-  globalThis.localStorage = {
-    getItem: (key) => localStorageData[key] || null,
-    setItem: (key, value) => { localStorageData[key] = String(value); },
-    removeItem: (key) => { delete localStorageData[key]; },
-    clear: () => { Object.keys(localStorageData).forEach(k => delete localStorageData[k]); },
-    get length() { return Object.keys(localStorageData).length; },
-    key: (i) => Object.keys(localStorageData)[i] || null
-  };
-}
-
 import logger from "@/utils/logger";
 import { YoutubeTranscript } from '@/utils/youtube-transcript/dist/youtube-transcript.common.js';
-import { Client } from 'youtubei';
-import axios from 'axios';
-
+import { Innertube } from 'youtubei.js';
 
 // Get API key from environment variables
 const API_KEY = process.env.YOUTUBE_API_KEY;
 
 if (!API_KEY) {
   logger.error("YOUTUBE_API_KEY environment variable is not set!");
+}
+
+// Singleton Innertube instance (reused across requests)
+let innertubeInstance = null;
+
+async function getInnertube() {
+  if (!innertubeInstance) {
+    logger.info('Creating new Innertube instance');
+    innertubeInstance = await Innertube.create({
+      generate_session_locally: true,
+    });
+  }
+  return innertubeInstance;
 }
 
 function decodeEntities(encodedString) {
@@ -41,26 +39,6 @@ function decodeEntities(encodedString) {
       var num = parseInt(numStr, 10);
       return String.fromCharCode(num);
     });
-}
-
-async function getTranscriptLanguages(videoId) {
-  try {
-    const youtube = new Client();
-    logger.fetch(`Getting available languages`, `Video: ${videoId}`);
-
-    const video = await youtube.getVideo(videoId);
-    if (!video || !video.captions) {
-      logger.info(`No captions available`, `Video: ${videoId}`);
-      return [];
-    }
-
-    const availableCaptions = video.captions.languages || [];
-    logger.success(`Found ${availableCaptions.length} languages`, `Video: ${videoId}`);
-    return availableCaptions;
-  } catch (error) {
-    logger.error(`Failed to get languages`, `Video: ${videoId} | Error: ${error.message}`);
-    return [];
-  }
 }
 
 export default async function handler(req, res) {
@@ -85,9 +63,9 @@ export default async function handler(req, res) {
 
   try {
     logger.fetch(`Video ${id}`);
-    const video = await fetchVideo(null, id);
+    const video = await fetchVideo(id);
     
-    let transcript = '';
+    let transcript = { available: false, reason: 'not_requested' };
     let timestampedTranscript = null;
     
     if (includeTranscript || includeTimestamped) {
@@ -95,13 +73,12 @@ export default async function handler(req, res) {
         // Fetch timestamped transcript
         timestampedTranscript = await fetchTimestampedTranscript(id);
         if (!includeTranscript && timestampedTranscript.available) {
-          // If only timestamped is requested, still get regular transcript for compatibility
-          transcript = timestampedTranscript.regular_content || '';
+          transcript = { available: true, content: timestampedTranscript.regular_content };
         } else {
-          transcript = await fetchTranscript(video);
+          transcript = await fetchTranscript(video, id);
         }
       } else {
-        transcript = await fetchTranscript(video);
+        transcript = await fetchTranscript(video, id);
       }
     }
 
@@ -115,95 +92,98 @@ export default async function handler(req, res) {
   }
 }
 
-// Fallback method using YouTube's noembed/oembed API
-async function fetchVideoFallback(id) {
-  logger.info(`Using fallback method for video`, `Video: ${id}`);
-  try {
-    const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`;
-    const response = await axios.get(oembedUrl, { timeout: 10000 });
-    
-    if (response.data && response.data.title) {
-      // Return a minimal video object compatible with formatResponse
-      return {
-        id: id,
-        title: response.data.title,
-        channel: {
-          id: null,
-          name: response.data.author_name,
-          subscriberCount: null,
-          thumbnails: [],
-          videoCount: null,
-          url: response.data.author_url,
-        },
-        chapters: [],
-        description: null,
-        duration: null,
-        likeCount: null,
-        isLiveContent: false,
-        uploadDate: null,
-        viewCount: null,
-        captions: null, // Mark as no captions available via fallback
-        _fallback: true, // Flag to indicate fallback was used
-      };
-    }
-    throw new Error('Invalid oembed response');
-  } catch (error) {
-    logger.error(`Fallback also failed for ${id}`, error.message);
-    throw new CustomError("Video not found or unavailable", 404);
-  }
-}
-
-async function fetchVideo(_, id) {
+async function fetchVideo(id) {
   try {
     if (!id) {
       throw new CustomError("Video ID is required", 400);
     }
 
-    try {
-      // Create a fresh client instance for each request to avoid state issues
-      const { Client } = require('youtubei');
-      const freshClient = new Client();
-      
-      logger.fetch(`Fetching video with fresh client`, `Video: ${id}`);
-      const video = await freshClient.getVideo(id);
-      
-      if (!video) {
-        logger.error(`Video not found: ${id}`);
-        throw new CustomError("Video not found or may have been removed", 404);
-      }
-
-      if (!video.id) {
-        logger.error(`Invalid video data for ${id}`, JSON.stringify(video, null, 2));
-        throw new CustomError("Unable to access video data - this may be due to regional restrictions or YouTube's security measures", 403);
-      }
-
-      return video;
-    } catch (error) {
-      // For parser errors (multiMarkersPlayerBarRenderer, etc.), try fallback
-      if (error.message?.includes('Cannot read properties') || 
-          error.message?.includes('undefined is not an object')) {
-        logger.warn(`Parser error for ${id}, trying fallback`, error.message);
-        return await fetchVideoFallback(id);
-      }
-      
-      if (error.message?.includes('network') || error.message?.includes('timeout')) {
-        logger.error(`Network error for ${id}`, error.message);
-        throw new CustomError("Network error while accessing YouTube. Please try again later.", 503);
-      }
-
-      if (error instanceof CustomError) {
-        throw error;
-      }
-
-      // For other errors, also try fallback
-      logger.warn(`Unexpected error for ${id}, trying fallback`, error.message);
-      return await fetchVideoFallback(id);
+    const yt = await getInnertube();
+    
+    logger.fetch(`Fetching video with youtubei.js`, `Video: ${id}`);
+    const info = await yt.getInfo(id);
+    
+    if (!info || !info.basic_info) {
+      logger.error(`Video not found: ${id}`);
+      throw new CustomError("Video not found or may have been removed", 404);
     }
+
+    const basicInfo = info.basic_info;
+    const videoDetails = info.primary_info;
+    const secondaryInfo = info.secondary_info;
+    
+    // Extract channel info
+    let channel = null;
+    if (secondaryInfo?.owner?.author) {
+      const author = secondaryInfo.owner.author;
+      channel = {
+        id: author.id || null,
+        name: author.name || null,
+        subscriberCount: secondaryInfo.owner.subscriber_count?.text || null,
+        thumbnails: author.thumbnails || [],
+        url: author.url || null,
+      };
+    } else if (basicInfo.author) {
+      channel = {
+        id: basicInfo.channel_id || null,
+        name: basicInfo.author || null,
+        subscriberCount: null,
+        thumbnails: [],
+        url: basicInfo.channel_id ? `https://www.youtube.com/channel/${basicInfo.channel_id}` : null,
+      };
+    }
+
+    // Extract chapters if available
+    let chapters = [];
+    if (info.player_overlays?.decorated_player_bar?.player_bar?.markers_map) {
+      const markersMap = info.player_overlays.decorated_player_bar.player_bar.markers_map;
+      const chapterMarkers = markersMap.find(m => m.key === 'AUTO_CHAPTERS' || m.key === 'DESCRIPTION_CHAPTERS');
+      if (chapterMarkers?.value?.chapters) {
+        chapters = chapterMarkers.value.chapters.map(ch => ({
+          title: ch.title?.text || ch.title || '',
+          start: ch.time_range_start_millis / 1000,
+        }));
+      }
+    }
+
+    // Build normalized video object
+    const video = {
+      id: basicInfo.id || id,
+      title: basicInfo.title || null,
+      description: basicInfo.short_description || null,
+      duration: basicInfo.duration || null,
+      viewCount: basicInfo.view_count || null,
+      likeCount: basicInfo.like_count || null,
+      isLiveContent: basicInfo.is_live || false,
+      uploadDate: videoDetails?.published?.text || videoDetails?.relative_date?.text || null,
+      channel: channel,
+      chapters: chapters,
+      // Store captions info for transcript fetching
+      _captions: info.captions,
+      _hasCaption: basicInfo.has_captions || false,
+    };
+
+    return video;
   } catch (error) {
     if (error instanceof CustomError) {
       throw error;
     }
-    throw new CustomError(error.message || "Failed to fetch video", error.statusCode || 500);
+    
+    // Handle specific youtubei.js errors
+    if (error.message?.includes('Video unavailable') || 
+        error.message?.includes('Private video') ||
+        error.message?.includes('Sign in')) {
+      logger.error(`Video unavailable: ${id}`, error.message);
+      throw new CustomError("Video is unavailable, private, or requires sign-in", 403);
+    }
+    
+    if (error.message?.includes('network') || error.message?.includes('timeout') || error.message?.includes('ECONNREFUSED')) {
+      logger.error(`Network error for ${id}`, error.message);
+      throw new CustomError("Network error while accessing YouTube. Please try again later.", 503);
+    }
+
+    logger.error(`Error fetching video ${id}`, error.message);
+    throw new CustomError(error.message || "Failed to fetch video", 500);
   }
 }
 
@@ -214,103 +194,88 @@ async function tryGetTranscriptWithYoutubeTranscript(videoId) {
     transcript.forEach((entry) => {
       text += ' ' + entry.text;
     });
-    return { success: true, content: text };
+    return { success: true, content: decodeEntities(text.trim()) };
   } catch (error) {
     return { success: false, error };
   }
 }
 
-async function fetchTranscript(video) {
+async function fetchTranscript(video, videoId) {
   if (!video || video.isLiveContent) {
-    logger.info(`No transcript - Live content`, `Video: ${video?.id}`);
+    logger.info(`No transcript - Live content`, `Video: ${videoId}`);
     return { available: false, reason: 'live_content' };
   }
 
-  if (!video.captions) {
-    logger.info(`No transcript - No captions`, `Video: ${video?.id}`);
-    return { available: false, reason: 'no_captions' };
-  }
-
   try {
-    logger.fetch(`Transcript for ${video.id}`);
+    logger.fetch(`Transcript for ${videoId}`);
     
-    // First try with YoutubeTranscript
-    const ytTranscriptResult = await tryGetTranscriptWithYoutubeTranscript(video.id);
+    // Use YoutubeTranscript library (more reliable)
+    const ytTranscriptResult = await tryGetTranscriptWithYoutubeTranscript(videoId);
     if (ytTranscriptResult.success) {
-      logger.success(`Got transcript for ${video.id} using YoutubeTranscript`);
+      logger.success(`Got transcript for ${videoId} using YoutubeTranscript`);
       return { available: true, content: ytTranscriptResult.content };
     }
 
-    // Fallback to video.captions.get()
-    const transcript = await video.captions.get();
-    logger.success(`Got transcript for ${video.id} using captions.get()`);
-    return { available: true, content: transcript };
+    // If YoutubeTranscript fails and no captions available
+    if (!video._hasCaption) {
+      logger.info(`No transcript - No captions`, `Video: ${videoId}`);
+      return { available: false, reason: 'no_captions' };
+    }
+
+    logger.info(`No transcript available`, `Video: ${videoId}`);
+    return { available: false, reason: 'fetch_failed' };
   } catch (error) {
     if (error.message?.includes('Transcript is disabled') || 
-        error.message?.includes('Cannot read properties') ||
         error.name === 'YoutubeTranscriptDisabledError') {
-      logger.info(`No transcript - Disabled`, `Video: ${video.id}`);
+      logger.info(`No transcript - Disabled`, `Video: ${videoId}`);
       return { available: false, reason: 'disabled' };
     }
 
-    logger.warn(`Transcript fetch error for ${video.id}`, error.message);
+    logger.warn(`Transcript fetch error for ${videoId}`, error.message);
     return { available: false, reason: 'error', error: error.message };
   }
 }
 
 async function fetchTimestampedTranscript(videoId) {
   try {
-    // High-confidence languages for OpenAI extraction
     const highConfidenceLangs = ['en', 'es', 'fr', 'de', 'it', 'pt', 'nl', 'sv', 'da', 'fi', 'no'];
 
     let selectedLang = null;
     let availableLangCodes = [];
-    let availableLanguages = [];
 
-    // Get available languages first
-    availableLanguages = await getTranscriptLanguages(videoId);
-    if (availableLanguages.length > 0) {
-      logger.info(`Available languages`, `Count: ${availableLanguages.length}`);
-      // Try to extract language codes (support both string and object)
-      availableLangCodes = availableLanguages.map(l => {
-        if (typeof l === 'string') return l;
-        if (l.languageCode) return l.languageCode;
-        if (l.lang) return l.lang;
-        if (l.code) return l.code;
-        logger.warn(`Unexpected language format`, `Language: ${JSON.stringify(l)}`);
-        return null;
-      }).filter(Boolean); // Remove any null values
-
-      logger.info(`Extracted language codes`, `Codes: ${availableLangCodes.join(', ')}`);
-      
-      // 1. Prefer English
-      if (availableLangCodes.includes('en')) {
-        selectedLang = 'en';
-      } else {
-        // 2. Try high-confidence languages
-        const found = highConfidenceLangs.find(code => availableLangCodes.includes(code));
-        if (found) {
-          selectedLang = found;
-        } else if (availableLangCodes.length === 1) {
-          // 3. Only one language, use it
-          selectedLang = availableLangCodes[0];
-        } else if (availableLangCodes.length > 1) {
-          // 4. Fallback: use the first available
-          selectedLang = availableLangCodes[0];
-        }
+    // Try to get available languages using YoutubeTranscript
+    try {
+      const transcriptList = await YoutubeTranscript.listTranscripts(videoId);
+      if (transcriptList && transcriptList.length > 0) {
+        availableLangCodes = transcriptList.map(t => t.languageCode || t.lang).filter(Boolean);
+        logger.info(`Available languages`, `Count: ${availableLangCodes.length}`);
       }
-      
+    } catch (e) {
+      logger.warn(`Could not list transcripts`, `Video: ${videoId}`);
+    }
+
+    // Select best language
+    if (availableLangCodes.includes('en')) {
+      selectedLang = 'en';
+    } else {
+      const found = highConfidenceLangs.find(code => availableLangCodes.includes(code));
+      if (found) {
+        selectedLang = found;
+      } else if (availableLangCodes.length > 0) {
+        selectedLang = availableLangCodes[0];
+      }
+    }
+
+    if (selectedLang) {
       logger.info(`Selected language`, `Language: ${selectedLang}`);
     }
 
     const options = selectedLang ? { lang: selectedLang } : {};
     logger.fetch(`Fetching timestamped transcript`, `Video: ${videoId}${selectedLang ? ` | Language: ${selectedLang}` : ''}`);
 
-    // Fetch transcript
     const transcript = await YoutubeTranscript.fetchTranscript(videoId, options);
     logger.info(`Raw transcript data`, `Length: ${transcript.length} entries`);
     
-    // Format with proper line breaks
     let timestampedData = '';
     let regularData = '';
     let timestampedArray = [];
@@ -321,18 +286,16 @@ async function fetchTimestampedTranscript(videoId) {
       regularData += ' ' + entry.text;
     });
     
-    // Join with line breaks for better formatting
     timestampedData = timestampedArray.join('\n');
-    
     timestampedData = decodeEntities(timestampedData);
-    regularData = decodeEntities(regularData);
+    regularData = decodeEntities(regularData.trim());
 
     logger.success(`Timestamped transcript fetched successfully`, `Video: ${videoId} | Length: ${timestampedData.length} chars`);
     
     return { 
       available: true, 
       content: timestampedData,
-      content_array: timestampedArray.map(item => decodeEntities(item)), // Also provide as array
+      content_array: timestampedArray.map(item => decodeEntities(item)),
       regular_content: regularData,
       language: selectedLang,
       available_languages: availableLangCodes
@@ -356,11 +319,10 @@ function formatResponse(video, transcript, timestampedTranscript, includeTranscr
       name: video.channel.name,
       subscriberCount: video.channel.subscriberCount,
       thumbnails: video.channel.thumbnails,
-      videoCount: video.channel.videoCount,
       url: video.channel.url,
     } : null,
     title: video.title,
-    chapters: video.chapters,
+    chapters: video.chapters || [],
     description: video.description,
     duration: video.duration,
     likeCount: video.likeCount,
@@ -390,7 +352,6 @@ function formatResponse(video, transcript, timestampedTranscript, includeTranscr
 
   return response;
 }
-
 
 class CustomError extends Error {
   constructor(message, statusCode) {
