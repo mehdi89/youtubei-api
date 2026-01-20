@@ -1,6 +1,9 @@
-import { Innertube } from 'youtubei.js';
+import { Innertube, Log } from 'youtubei.js';
 import { YoutubeTranscript } from '@/utils/youtube-transcript/dist/youtube-transcript.common.js';
 import logger from "@/utils/logger";
+
+// Suppress youtubei.js parser warnings (they're non-fatal)
+Log.setLevel(Log.Level.NONE);
 
 // Singleton Innertube instance
 let innertubeInstance = null;

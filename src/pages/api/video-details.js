@@ -1,6 +1,9 @@
 import logger from "@/utils/logger";
 import { YoutubeTranscript } from '@/utils/youtube-transcript/dist/youtube-transcript.common.js';
-import { Innertube } from 'youtubei.js';
+import { Innertube, Log } from 'youtubei.js';
+
+// Suppress youtubei.js parser warnings (they're non-fatal)
+Log.setLevel(Log.Level.NONE);
 
 // Get API key from environment variables
 const API_KEY = process.env.YOUTUBE_API_KEY;

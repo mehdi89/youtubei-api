@@ -20,6 +20,16 @@ jest.mock('youtubei.js', () => ({
       getInfo: mockGetInfo,
     })),
   },
+  Log: {
+    setLevel: jest.fn(),
+    Level: {
+      NONE: 0,
+      ERROR: 1,
+      WARNING: 2,
+      INFO: 3,
+      DEBUG: 4,
+    },
+  },
 }))
 
 describe('Video Details API', () => {
