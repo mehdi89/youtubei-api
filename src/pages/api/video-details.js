@@ -1,3 +1,16 @@
+// Polyfill localStorage for server-side (youtubei uses it for caching)
+if (typeof globalThis.localStorage === 'undefined') {
+  const localStorageData = {};
+  globalThis.localStorage = {
+    getItem: (key) => localStorageData[key] || null,
+    setItem: (key, value) => { localStorageData[key] = String(value); },
+    removeItem: (key) => { delete localStorageData[key]; },
+    clear: () => { Object.keys(localStorageData).forEach(k => delete localStorageData[k]); },
+    get length() { return Object.keys(localStorageData).length; },
+    key: (i) => Object.keys(localStorageData)[i] || null
+  };
+}
+
 import logger from "@/utils/logger";
 import { YoutubeTranscript } from '@/utils/youtube-transcript/dist/youtube-transcript.common.js';
 import { Client } from 'youtubei';
