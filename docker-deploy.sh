@@ -6,9 +6,9 @@
 # echo "📥 Pulling latest changes..."
 # git pull
 
-# Build the new production image
+# Build the new production image (no cache to ensure fresh build)
 echo "🔨 Building new production image..."
-docker compose build prod
+docker compose build --no-cache prod
 
 # Check if the container is running
 if [ "$(docker ps -q -f name=youtubei-api-prod)" ]; then
