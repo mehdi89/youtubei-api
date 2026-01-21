@@ -95,7 +95,7 @@ function formatLiveVideo(item, channel) {
     title: item.title?.text || item.title || null,
     duration: item.is_live ? null : parseDuration(item.duration),
     description: item.description?.text || item.description || null,
-    isLive: item.is_live || true,
+    isLive: Boolean(item.is_live),
     viewCount: parseViewCount(item.view_count),
     uploadDate: item.published?.text || null,
     thumbnail: videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : null,
