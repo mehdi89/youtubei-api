@@ -8,7 +8,7 @@ import {
 } from '@/utils/innertube';
 
 /**
- * Fetch transcript using youtubei.js directly (works with auto-generated captions)
+ * Fetch transcript using youtubei.js caption URL directly
  */
 async function fetchTranscriptWithInnerTube(videoId, langCode = null) {
   try {
@@ -21,41 +21,67 @@ async function fetchTranscriptWithInnerTube(videoId, langCode = null) {
       return { success: false, error: 'No captions available' };
     }
 
-    logger.info(`youtubei.js: Getting transcript`, `Video: ${videoId}`);
-    const transcriptInfo = await info.getTranscript();
-
-    if (!transcriptInfo) {
-      logger.warn(`youtubei.js: No transcriptInfo returned`, `Video: ${videoId}`);
-      return { success: false, error: 'No transcript info' };
+    const captionTracks = info.captions.caption_tracks || [];
+    if (captionTracks.length === 0) {
+      logger.warn(`youtubei.js: No caption tracks`, `Video: ${videoId}`);
+      return { success: false, error: 'No caption tracks' };
     }
 
-    if (!transcriptInfo.transcript) {
-      logger.warn(`youtubei.js: No transcript in transcriptInfo`, `Video: ${videoId} | Keys: ${Object.keys(transcriptInfo).join(', ')}`);
-      return { success: false, error: 'No transcript content' };
+    // Find the best caption track
+    let track = captionTracks[0];
+    if (langCode) {
+      const langTrack = captionTracks.find(t => t.language_code === langCode);
+      if (langTrack) track = langTrack;
+    } else {
+      // Prefer English
+      const enTrack = captionTracks.find(t => t.language_code === 'en' || t.language_code?.startsWith('en'));
+      if (enTrack) track = enTrack;
     }
 
-    if (!transcriptInfo.transcript.content) {
-      logger.warn(`youtubei.js: No content in transcript`, `Video: ${videoId}`);
-      return { success: false, error: 'No transcript content' };
+    logger.info(`youtubei.js: Using caption track`, `Video: ${videoId} | Lang: ${track.language_code}`);
+
+    // Fetch the caption XML directly
+    const captionUrl = track.base_url;
+    if (!captionUrl) {
+      logger.warn(`youtubei.js: No base_url in track`, `Video: ${videoId}`);
+      return { success: false, error: 'No caption URL' };
     }
 
-    const body = transcriptInfo.transcript.content.body;
-    if (!body || !body.initial_segments) {
-      logger.warn(`youtubei.js: No body or segments`, `Video: ${videoId}`);
-      return { success: false, error: 'No transcript segments' };
+    const response = await fetch(captionUrl);
+    if (!response.ok) {
+      logger.warn(`youtubei.js: Caption fetch failed`, `Video: ${videoId} | Status: ${response.status}`);
+      return { success: false, error: `Caption fetch failed: ${response.status}` };
     }
 
-    const segments = body.initial_segments;
-    logger.info(`youtubei.js: Found ${segments.length} segments`, `Video: ${videoId}`);
+    const xml = await response.text();
 
-    const entries = segments.map(segment => ({
-      text: segment.snippet?.text || '',
-      offset: (segment.start_ms || 0) / 1000,
-      duration: ((segment.end_ms || 0) - (segment.start_ms || 0)) / 1000
-    })).filter(entry => entry.text);
+    // Parse XML to extract text segments
+    // Format: <text start="0" dur="5.5">Text here</text>
+    const textRegex = /<text[^>]*start="([^"]*)"[^>]*dur="([^"]*)"[^>]*>([^<]*)<\/text>/g;
+    const entries = [];
+    let match;
+
+    while ((match = textRegex.exec(xml)) !== null) {
+      const text = match[3]
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/\n/g, ' ')
+        .trim();
+
+      if (text) {
+        entries.push({
+          text,
+          offset: parseFloat(match[1]) || 0,
+          duration: parseFloat(match[2]) || 0
+        });
+      }
+    }
 
     if (entries.length === 0) {
-      logger.warn(`youtubei.js: No text in segments`, `Video: ${videoId}`);
+      logger.warn(`youtubei.js: No text extracted from XML`, `Video: ${videoId}`);
       return { success: false, error: 'No transcript text found' };
     }
 

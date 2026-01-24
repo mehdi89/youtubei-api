@@ -161,7 +161,7 @@ async function fetchVideo(id) {
 }
 
 /**
- * Fetch transcript using youtubei.js directly (works with auto-generated captions)
+ * Fetch transcript using youtubei.js caption URL directly
  */
 async function fetchTranscriptWithInnerTube(videoId) {
   try {
@@ -172,23 +172,47 @@ async function fetchTranscriptWithInnerTube(videoId) {
       return { success: false, error: 'No captions available' };
     }
 
-    const transcriptInfo = await info.getTranscript();
-    if (!transcriptInfo || !transcriptInfo.transcript || !transcriptInfo.transcript.content) {
-      return { success: false, error: 'No transcript content' };
+    const captionTracks = info.captions.caption_tracks || [];
+    if (captionTracks.length === 0) {
+      return { success: false, error: 'No caption tracks' };
     }
 
-    const body = transcriptInfo.transcript.content.body;
-    if (!body || !body.initial_segments) {
-      return { success: false, error: 'No transcript segments' };
+    // Prefer English track
+    let track = captionTracks[0];
+    const enTrack = captionTracks.find(t => t.language_code === 'en' || t.language_code?.startsWith('en'));
+    if (enTrack) track = enTrack;
+
+    const captionUrl = track.base_url;
+    if (!captionUrl) {
+      return { success: false, error: 'No caption URL' };
     }
 
-    const segments = body.initial_segments;
+    const response = await fetch(captionUrl);
+    if (!response.ok) {
+      return { success: false, error: `Caption fetch failed: ${response.status}` };
+    }
+
+    const xml = await response.text();
+
+    // Parse XML to extract text
+    const textRegex = /<text[^>]*>([^<]*)<\/text>/g;
     let text = '';
-    segments.forEach(segment => {
-      if (segment.snippet?.text) {
-        text += ' ' + segment.snippet.text;
+    let match;
+
+    while ((match = textRegex.exec(xml)) !== null) {
+      const segment = match[1]
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/\n/g, ' ')
+        .trim();
+
+      if (segment) {
+        text += ' ' + segment;
       }
-    });
+    }
 
     if (!text.trim()) {
       return { success: false, error: 'No transcript text found' };
