@@ -40,24 +40,22 @@ async function generateProxyCredentials() {
     });
 
     const response = await fetch(`${EVOMI_API_URL}?${params}`);
-    const data = await response.json();
 
-    if (data.error) {
-      logger.error('Evomi API error', data.error);
+    // Evomi API returns plain text in format: username:password@host:port
+    // Don't try to parse as JSON - read as text directly
+    const text = await response.text();
+
+    if (!response.ok) {
+      logger.error('Evomi API error', `Status: ${response.status}, Body: ${text}`);
       return null;
     }
 
-    // Response is the proxy URL string directly
-    if (typeof data === 'string' || response.headers.get('content-type')?.includes('text/plain')) {
-      const text = typeof data === 'string' ? data : await response.text();
-      cachedProxyUrl = text.trim();
-      cacheTimestamp = Date.now();
-      logger.info('Evomi proxy credentials generated');
-      return cachedProxyUrl;
+    // Check if response looks like an error message
+    if (text.includes('error') || text.includes('Error')) {
+      logger.error('Evomi API error', text);
+      return null;
     }
 
-    // If response is JSON with the proxy URL
-    const text = await response.text();
     cachedProxyUrl = text.trim();
     cacheTimestamp = Date.now();
     logger.info('Evomi proxy credentials generated');
