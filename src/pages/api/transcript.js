@@ -47,26 +47,57 @@ async function fetchTranscriptWithInnerTube(videoId, langCode = null) {
       return { success: false, error: 'No caption URL' };
     }
 
-    // Use the innertube's http client to make the request (includes proper auth)
+    // Fetch with retry logic for rate limiting
     let xml;
-    try {
-      const response = await yt.session.http.fetch(captionUrl);
-      xml = await response.text();
-    } catch (fetchError) {
-      // Fallback to direct fetch with headers
-      logger.warn(`youtubei.js: Session fetch failed, trying direct`, `Video: ${videoId}`);
-      const response = await fetch(captionUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Referer': `https://www.youtube.com/watch?v=${videoId}`
+    const maxRetries = 3;
+    const baseDelay = 1000;
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        // Try session fetch first
+        try {
+          const response = await yt.session.http.fetch(captionUrl);
+          xml = await response.text();
+          break;
+        } catch (sessionError) {
+          // Fallback to direct fetch with headers
+          if (attempt === 0) {
+            logger.warn(`youtubei.js: Session fetch failed, trying direct`, `Video: ${videoId}`);
+          }
+          const response = await fetch(captionUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Accept-Language': 'en-US,en;q=0.9',
+              'Referer': `https://www.youtube.com/watch?v=${videoId}`,
+              'Origin': 'https://www.youtube.com'
+            }
+          });
+
+          if (response.status === 429) {
+            // Rate limited - wait and retry
+            const delay = baseDelay * Math.pow(2, attempt);
+            logger.warn(`youtubei.js: Rate limited, retrying in ${delay}ms`, `Video: ${videoId} | Attempt: ${attempt + 1}`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+          }
+
+          if (!response.ok) {
+            logger.warn(`youtubei.js: Caption fetch failed`, `Video: ${videoId} | Status: ${response.status}`);
+            return { success: false, error: `Caption fetch failed: ${response.status}` };
+          }
+          xml = await response.text();
+          break;
         }
-      });
-      if (!response.ok) {
-        logger.warn(`youtubei.js: Caption fetch failed`, `Video: ${videoId} | Status: ${response.status}`);
-        return { success: false, error: `Caption fetch failed: ${response.status}` };
+      } catch (fetchError) {
+        if (attempt === maxRetries - 1) {
+          throw fetchError;
+        }
       }
-      xml = await response.text();
+    }
+
+    if (!xml) {
+      logger.warn(`youtubei.js: Failed after ${maxRetries} retries`, `Video: ${videoId}`);
+      return { success: false, error: 'Caption fetch failed after retries' };
     }
 
     // Parse XML to extract text segments
