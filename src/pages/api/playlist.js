@@ -1,4 +1,5 @@
 import logger from "@/utils/logger";
+import cache, { TTL } from '@/utils/cache';
 import { getInnertube } from "@/utils/innertube";
 
 /**
@@ -30,6 +31,14 @@ export default async function handler(req, res) {
   if (!id) {
     logger.error("Missing playlist ID");
     return res.status(400).json({ message: 'Playlist ID is required' });
+  }
+
+  // Check cache first
+  const cacheKey = cache.generateKey('playlist', { id, page, includeMetadata });
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    logger.info(`Cache hit for playlist ${id}`);
+    return res.status(200).json(cached);
   }
 
   logger.fetch(`Fetching playlist videos`, `Playlist: ${id} | Page: ${page}`);
@@ -67,7 +76,7 @@ export default async function handler(req, res) {
 
     // Return with optional metadata
     if (includeMetadata) {
-      return res.status(200).json({
+      const response = {
         playlist: {
           id: playlist.info?.id || id,
           title: playlist.info?.title || null,
@@ -84,10 +93,18 @@ export default async function handler(req, res) {
         },
         videos: items,
         hasMore: playlist.has_continuation || false,
-      });
+      };
+
+      // Cache the response
+      cache.set(cacheKey, response, TTL.PLAYLIST);
+
+      return res.status(200).json(response);
     }
 
     // Backwards compatible: just return array of videos
+    // Cache the response
+    cache.set(cacheKey, items, TTL.PLAYLIST);
+
     return res.status(200).json(items);
   } catch (error) {
     logger.error(`Failed to fetch playlist videos`, `Playlist: ${id} | Error: ${error.message}`);

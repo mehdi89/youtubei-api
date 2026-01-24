@@ -1,4 +1,5 @@
 import logger from "@/utils/logger";
+import cache, { TTL } from '@/utils/cache';
 import { getInnertube } from "@/utils/innertube";
 
 /**
@@ -42,9 +43,17 @@ export default async function handler(req, res) {
   const validTypes = ['video', 'channel', 'playlist'];
   if (!type || !validTypes.includes(type)) {
     logger.error("Invalid search type", `Type: ${type}`);
-    return res.status(400).json({ 
-      message: `Invalid search type. Must be one of: ${validTypes.join(', ')}` 
+    return res.status(400).json({
+      message: `Invalid search type. Must be one of: ${validTypes.join(', ')}`
     });
+  }
+
+  // Check cache first
+  const cacheKey = cache.generateKey('search', { query, type, page, sortBy, duration, uploadDate });
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    logger.info(`Cache hit for search "${query}"`);
+    return res.status(200).json(cached);
   }
 
   logger.fetch(`Searching ${type}`, `Query: "${query}" | Page: ${page}`);
@@ -119,6 +128,10 @@ export default async function handler(req, res) {
     }
 
     logger.success(`Found ${items.length} ${type}s`, `Query: "${query}" | Page: ${page}`);
+
+    // Cache the response
+    cache.set(cacheKey, items, TTL.SEARCH);
+
     res.status(200).json(items);
   } catch (error) {
     logger.error("Search failed", `Error: ${error.message}`);

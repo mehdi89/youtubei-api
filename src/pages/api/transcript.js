@@ -1,5 +1,6 @@
 import { YoutubeTranscript } from '@/utils/youtube-transcript/dist/youtube-transcript.common.js';
 import logger from "@/utils/logger";
+import cache, { TTL } from '@/utils/cache';
 import {
   getInnertube,
   decodeEntities,
@@ -197,6 +198,14 @@ export default async function handler(req, res) {
     return res.status(400).json({ message: 'Video ID is required' });
   }
 
+  // Check cache first
+  const cacheKey = cache.generateKey('transcript', { id, type: type || 'regular' });
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    logger.info(`Cache hit for transcript ${id}`);
+    return res.status(200).json(cached);
+  }
+
   let selectedLang = null;
   let availableLangCodes = [];
 
@@ -255,7 +264,12 @@ export default async function handler(req, res) {
     data = decodeEntities(data);
 
     logger.success(`Transcript fetched successfully`, `Video: ${id} | Length: ${data.length} chars | Method: ${fetchMethod}`);
-    res.status(200).json({ data });
+
+    // Cache the response
+    const response = { data };
+    cache.set(cacheKey, response, TTL.TRANSCRIPT);
+
+    res.status(200).json(response);
   } catch (error) {
     if (error.message?.includes('Transcript is disabled')) {
       logger.info(`Transcript disabled`, `Video: ${id}`);

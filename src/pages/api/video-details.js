@@ -1,11 +1,12 @@
 import logger from "@/utils/logger";
 import { YoutubeTranscript } from '@/utils/youtube-transcript/dist/youtube-transcript.common.js';
-import { 
-  getInnertube, 
-  decodeEntities, 
+import {
+  getInnertube,
+  decodeEntities,
   selectBestLanguage,
-  HIGH_CONFIDENCE_LANGUAGES 
+  HIGH_CONFIDENCE_LANGUAGES
 } from '@/utils/innertube';
+import cache, { TTL } from '@/utils/cache';
 
 // Get API key from environment variables
 const API_KEY = process.env.YOUTUBE_API_KEY;
@@ -34,28 +35,52 @@ export default async function handler(req, res) {
     return res.status(400).json({ message: "Missing video ID" });
   }
 
+  // Check cache first
+  const cacheKey = cache.generateKey('video-details', { id, includeTranscript, includeTimestamped });
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    logger.info(`Cache hit for video ${id}`);
+    return res.status(200).json(cached);
+  }
+
   try {
     logger.fetch(`Video ${id}`);
     const video = await fetchVideo(id);
-    
+
     let transcript = { available: false, reason: 'not_requested' };
     let timestampedTranscript = null;
-    
+
     if (includeTranscript || includeTimestamped) {
-      if (includeTimestamped) {
-        // Fetch timestamped transcript
-        timestampedTranscript = await fetchTimestampedTranscript(id);
-        if (!includeTranscript && timestampedTranscript.available) {
-          transcript = { available: true, content: timestampedTranscript.regular_content };
+      // Check transcript cache separately (longer TTL)
+      const transcriptCacheKey = cache.generateKey('transcript', { id, timestamped: includeTimestamped });
+      const cachedTranscript = cache.get(transcriptCacheKey);
+
+      if (cachedTranscript) {
+        logger.info(`Cache hit for transcript ${id}`);
+        transcript = cachedTranscript.transcript;
+        timestampedTranscript = cachedTranscript.timestampedTranscript;
+      } else {
+        if (includeTimestamped) {
+          timestampedTranscript = await fetchTimestampedTranscript(id);
+          if (!includeTranscript && timestampedTranscript.available) {
+            transcript = { available: true, content: timestampedTranscript.regular_content };
+          } else {
+            transcript = await fetchTranscript(video, id);
+          }
         } else {
           transcript = await fetchTranscript(video, id);
         }
-      } else {
-        transcript = await fetchTranscript(video, id);
+
+        // Cache transcript result
+        cache.set(transcriptCacheKey, { transcript, timestampedTranscript }, TTL.TRANSCRIPT);
       }
     }
 
     const response = formatResponse(video, transcript, timestampedTranscript, includeTranscript, includeTimestamped);
+
+    // Cache the full response
+    cache.set(cacheKey, response, TTL.VIDEO_DETAILS);
+
     logger.success(`Processed video ${id}`, `Title: ${video.title}`);
     res.status(200).json(response);
   } catch (error) {

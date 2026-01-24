@@ -1,4 +1,5 @@
 import logger from "@/utils/logger";
+import cache, { TTL } from '@/utils/cache';
 import { getInnertube } from "@/utils/innertube";
 
 /**
@@ -38,9 +39,17 @@ export default async function handler(req, res) {
   const validContentTypes = ['all', 'videos', 'shorts', 'live'];
   if (!validContentTypes.includes(contentType)) {
     logger.error("Invalid contentType", `Got: ${contentType}`);
-    return res.status(400).json({ 
-      message: `Invalid contentType. Must be one of: ${validContentTypes.join(', ')}` 
+    return res.status(400).json({
+      message: `Invalid contentType. Must be one of: ${validContentTypes.join(', ')}`
     });
+  }
+
+  // Check cache first
+  const cacheKey = cache.generateKey('channel-videos', { id, page, contentType });
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    logger.info(`Cache hit for channel videos ${id}`);
+    return res.status(200).json(cached);
   }
 
   logger.fetch(`Fetching channel ${contentType}`, `Channel: ${id} | Page: ${page}`);
@@ -81,6 +90,10 @@ export default async function handler(req, res) {
     }
 
     logger.success(`Found ${items.length} ${contentType}`, `Channel: ${id} | Page: ${page}`);
+
+    // Cache the response
+    cache.set(cacheKey, items, TTL.CHANNEL_VIDEOS);
+
     return res.status(200).json(items);
   } catch (error) {
     logger.error(`Failed to fetch channel ${contentType}`, `Channel: ${id} | Error: ${error.message}`);

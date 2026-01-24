@@ -1,4 +1,5 @@
 import logger from "@/utils/logger";
+import cache, { TTL } from '@/utils/cache';
 import { getInnertube } from "@/utils/innertube";
 
 /**
@@ -26,6 +27,14 @@ export default async function handler(req, res) {
   if (!id) {
     logger.error("Missing channel ID");
     return res.status(400).json({ message: 'Channel ID is required' });
+  }
+
+  // Check cache first
+  const cacheKey = cache.generateKey('channel-live', { id, page });
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    logger.info(`Cache hit for channel live ${id}`);
+    return res.status(200).json(cached);
   }
 
   logger.fetch(`Fetching live videos`, `Channel: ${id}`);
@@ -77,6 +86,10 @@ export default async function handler(req, res) {
     const items = videos.map(item => formatLiveVideo(item, channel));
 
     logger.success(`Found ${items.length} live videos`, `Channel: ${id}`);
+
+    // Cache the response
+    cache.set(cacheKey, items, TTL.CHANNEL_LIVE);
+
     return res.status(200).json(items);
   } catch (error) {
     logger.error(`Failed to fetch live videos`, `Channel: ${id} | Error: ${error.message}`);
