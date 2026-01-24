@@ -12,24 +12,42 @@ import {
  */
 async function fetchTranscriptWithInnerTube(videoId, langCode = null) {
   try {
+    logger.info(`Trying youtubei.js fallback`, `Video: ${videoId}`);
     const yt = await getInnertube();
     const info = await yt.getInfo(videoId);
 
     if (!info || !info.captions) {
+      logger.warn(`youtubei.js: No captions object`, `Video: ${videoId}`);
       return { success: false, error: 'No captions available' };
     }
 
+    logger.info(`youtubei.js: Getting transcript`, `Video: ${videoId}`);
     const transcriptInfo = await info.getTranscript();
-    if (!transcriptInfo || !transcriptInfo.transcript || !transcriptInfo.transcript.content) {
+
+    if (!transcriptInfo) {
+      logger.warn(`youtubei.js: No transcriptInfo returned`, `Video: ${videoId}`);
+      return { success: false, error: 'No transcript info' };
+    }
+
+    if (!transcriptInfo.transcript) {
+      logger.warn(`youtubei.js: No transcript in transcriptInfo`, `Video: ${videoId} | Keys: ${Object.keys(transcriptInfo).join(', ')}`);
+      return { success: false, error: 'No transcript content' };
+    }
+
+    if (!transcriptInfo.transcript.content) {
+      logger.warn(`youtubei.js: No content in transcript`, `Video: ${videoId}`);
       return { success: false, error: 'No transcript content' };
     }
 
     const body = transcriptInfo.transcript.content.body;
     if (!body || !body.initial_segments) {
+      logger.warn(`youtubei.js: No body or segments`, `Video: ${videoId}`);
       return { success: false, error: 'No transcript segments' };
     }
 
     const segments = body.initial_segments;
+    logger.info(`youtubei.js: Found ${segments.length} segments`, `Video: ${videoId}`);
+
     const entries = segments.map(segment => ({
       text: segment.snippet?.text || '',
       offset: (segment.start_ms || 0) / 1000,
@@ -37,11 +55,14 @@ async function fetchTranscriptWithInnerTube(videoId, langCode = null) {
     })).filter(entry => entry.text);
 
     if (entries.length === 0) {
+      logger.warn(`youtubei.js: No text in segments`, `Video: ${videoId}`);
       return { success: false, error: 'No transcript text found' };
     }
 
+    logger.success(`youtubei.js: Got ${entries.length} entries`, `Video: ${videoId}`);
     return { success: true, entries };
   } catch (error) {
+    logger.error(`youtubei.js fallback failed`, `Video: ${videoId} | Error: ${error.message}`);
     return { success: false, error: error.message };
   }
 }
