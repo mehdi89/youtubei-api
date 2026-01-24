@@ -160,15 +160,62 @@ async function fetchVideo(id) {
   }
 }
 
+/**
+ * Fetch transcript using youtubei.js directly (works with auto-generated captions)
+ */
+async function fetchTranscriptWithInnerTube(videoId) {
+  try {
+    const yt = await getInnertube();
+    const info = await yt.getInfo(videoId);
+
+    if (!info || !info.captions) {
+      return { success: false, error: 'No captions available' };
+    }
+
+    const transcriptInfo = await info.getTranscript();
+    if (!transcriptInfo || !transcriptInfo.transcript || !transcriptInfo.transcript.content) {
+      return { success: false, error: 'No transcript content' };
+    }
+
+    const body = transcriptInfo.transcript.content.body;
+    if (!body || !body.initial_segments) {
+      return { success: false, error: 'No transcript segments' };
+    }
+
+    const segments = body.initial_segments;
+    let text = '';
+    segments.forEach(segment => {
+      if (segment.snippet?.text) {
+        text += ' ' + segment.snippet.text;
+      }
+    });
+
+    if (!text.trim()) {
+      return { success: false, error: 'No transcript text found' };
+    }
+
+    return { success: true, content: decodeEntities(text.trim()), method: 'youtubei.js' };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
 async function tryGetTranscriptWithYoutubeTranscript(videoId) {
+  // Try YoutubeTranscript first
   try {
     const transcript = await YoutubeTranscript.fetchTranscript(videoId);
     let text = '';
     transcript.forEach((entry) => {
       text += ' ' + entry.text;
     });
-    return { success: true, content: decodeEntities(text.trim()) };
+    return { success: true, content: decodeEntities(text.trim()), method: 'YoutubeTranscript' };
   } catch (error) {
+    // Fallback to youtubei.js
+    logger.warn(`YoutubeTranscript failed for ${videoId}, trying youtubei.js`);
+    const innertubeResult = await fetchTranscriptWithInnerTube(videoId);
+    if (innertubeResult.success) {
+      return innertubeResult;
+    }
     return { success: false, error };
   }
 }

@@ -1,11 +1,50 @@
 import { YoutubeTranscript } from '@/utils/youtube-transcript/dist/youtube-transcript.common.js';
 import logger from "@/utils/logger";
-import { 
-  getInnertube, 
-  decodeEntities, 
+import {
+  getInnertube,
+  decodeEntities,
   selectBestLanguage,
-  HIGH_CONFIDENCE_LANGUAGES 
+  HIGH_CONFIDENCE_LANGUAGES
 } from '@/utils/innertube';
+
+/**
+ * Fetch transcript using youtubei.js directly (works with auto-generated captions)
+ */
+async function fetchTranscriptWithInnerTube(videoId, langCode = null) {
+  try {
+    const yt = await getInnertube();
+    const info = await yt.getInfo(videoId);
+
+    if (!info || !info.captions) {
+      return { success: false, error: 'No captions available' };
+    }
+
+    const transcriptInfo = await info.getTranscript();
+    if (!transcriptInfo || !transcriptInfo.transcript || !transcriptInfo.transcript.content) {
+      return { success: false, error: 'No transcript content' };
+    }
+
+    const body = transcriptInfo.transcript.content.body;
+    if (!body || !body.initial_segments) {
+      return { success: false, error: 'No transcript segments' };
+    }
+
+    const segments = body.initial_segments;
+    const entries = segments.map(segment => ({
+      text: segment.snippet?.text || '',
+      offset: (segment.start_ms || 0) / 1000,
+      duration: ((segment.end_ms || 0) - (segment.start_ms || 0)) / 1000
+    })).filter(entry => entry.text);
+
+    if (entries.length === 0) {
+      return { success: false, error: 'No transcript text found' };
+    }
+
+    return { success: true, entries };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
 
 async function getTranscriptLanguages(videoId) {
   try {
@@ -87,10 +126,29 @@ export default async function handler(req, res) {
     const options = selectedLang ? { lang: selectedLang } : {};
     logger.fetch(`Fetching transcript`, `Video: ${id}${selectedLang ? ` | Language: ${selectedLang}` : ''}`);
 
-    // Fetch transcript
-    const transcript = await YoutubeTranscript.fetchTranscript(id, options);
-    logger.info(`Raw transcript data`, `Length: ${transcript.length} entries`);
-    
+    let transcript = null;
+    let fetchMethod = '';
+
+    // Try YoutubeTranscript first
+    try {
+      transcript = await YoutubeTranscript.fetchTranscript(id, options);
+      fetchMethod = 'YoutubeTranscript';
+    } catch (ytError) {
+      logger.warn(`YoutubeTranscript failed, trying youtubei.js`, `Video: ${id}`);
+
+      // Fallback to youtubei.js
+      const innertubeResult = await fetchTranscriptWithInnerTube(id, selectedLang);
+      if (innertubeResult.success) {
+        transcript = innertubeResult.entries;
+        fetchMethod = 'youtubei.js';
+      } else {
+        // Both methods failed
+        throw new Error(ytError.message || 'No transcripts available');
+      }
+    }
+
+    logger.info(`Raw transcript data`, `Length: ${transcript.length} entries | Method: ${fetchMethod}`);
+
     let data = '';
     if (type === 'timestamped') {
       transcript.forEach((entry) => {
@@ -104,7 +162,7 @@ export default async function handler(req, res) {
     }
     data = decodeEntities(data);
 
-    logger.success(`Transcript fetched successfully`, `Video: ${id} | Length: ${data.length} chars`);
+    logger.success(`Transcript fetched successfully`, `Video: ${id} | Length: ${data.length} chars | Method: ${fetchMethod}`);
     res.status(200).json({ data });
   } catch (error) {
     if (error.message?.includes('Transcript is disabled')) {
