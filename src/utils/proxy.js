@@ -3,9 +3,11 @@
  *
  * Handles residential proxy setup for YouTube transcript fetching
  * to bypass rate limiting.
+ *
+ * Uses undici ProxyAgent which works with Node.js native fetch.
  */
 
-import { HttpsProxyAgent } from 'https-proxy-agent';
+import { ProxyAgent, setGlobalDispatcher, getGlobalDispatcher } from 'undici';
 import logger from './logger.js';
 
 const EVOMI_API_KEY = process.env.EVOMI_API_KEY;
@@ -15,6 +17,9 @@ const EVOMI_API_URL = 'https://api.evomi.com/public/generate';
 let cachedProxyUrl = null;
 let cacheTimestamp = 0;
 const CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+// Store original dispatcher
+let originalDispatcher = null;
 
 /**
  * Generate proxy credentials from Evomi API
@@ -42,7 +47,6 @@ async function generateProxyCredentials() {
     const response = await fetch(`${EVOMI_API_URL}?${params}`);
 
     // Evomi API returns plain text in format: username:password@host:port
-    // Don't try to parse as JSON - read as text directly
     const text = await response.text();
 
     if (!response.ok) {
@@ -67,7 +71,7 @@ async function generateProxyCredentials() {
 }
 
 /**
- * Get configured HttpsProxyAgent
+ * Get configured ProxyAgent for undici/fetch
  * Returns null if proxy is not configured or unavailable
  */
 export async function getProxyAgent() {
@@ -78,7 +82,9 @@ export async function getProxyAgent() {
   }
 
   try {
-    return new HttpsProxyAgent(proxyUrl);
+    // Format: username:password@host:port -> http://username:password@host:port
+    const fullProxyUrl = proxyUrl.startsWith('http') ? proxyUrl : `http://${proxyUrl}`;
+    return new ProxyAgent(fullProxyUrl);
   } catch (error) {
     logger.error('Failed to create proxy agent', error.message);
     return null;
@@ -86,7 +92,7 @@ export async function getProxyAgent() {
 }
 
 /**
- * Enable proxy for global fetch
+ * Enable proxy for global fetch using undici dispatcher
  * Call this before making transcript requests
  */
 export async function enableProxyForFetch() {
@@ -97,30 +103,23 @@ export async function enableProxyForFetch() {
     return false;
   }
 
-  // Store original fetch
-  const originalFetch = global.fetch;
+  // Store original dispatcher
+  originalDispatcher = getGlobalDispatcher();
 
-  // Monkey-patch global fetch to use proxy
-  global.fetch = (url, options = {}) => {
-    return originalFetch(url, { ...options, agent });
-  };
-
-  // Store reference to restore later
-  global._originalFetch = originalFetch;
-  global._proxyEnabled = true;
+  // Set proxy as global dispatcher
+  setGlobalDispatcher(agent);
 
   logger.info('Proxy enabled for fetch requests');
   return true;
 }
 
 /**
- * Disable proxy and restore original fetch
+ * Disable proxy and restore original dispatcher
  */
 export function disableProxyForFetch() {
-  if (global._originalFetch) {
-    global.fetch = global._originalFetch;
-    delete global._originalFetch;
-    delete global._proxyEnabled;
+  if (originalDispatcher) {
+    setGlobalDispatcher(originalDispatcher);
+    originalDispatcher = null;
     logger.info('Proxy disabled, restored original fetch');
   }
 }
