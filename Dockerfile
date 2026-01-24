@@ -1,35 +1,50 @@
-# Python-only Dockerfile for YouTube API with yt-dlp
-FROM python:3.11-slim
+# Node.js Dockerfile for YouTube API with youtubei.js
+FROM node:20-alpine AS base
 
-# Set working directory
+# Install dependencies only when needed
+FROM base AS deps
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    wget \
-    curl \
-    ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
+# Copy package files
+COPY package.json package-lock.json* ./
 
-# Copy requirements
-COPY requirements.txt .
+# Install dependencies
+RUN npm ci --only=production
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Rebuild the source code only when needed
+FROM base AS builder
+WORKDIR /app
 
-# Copy application
-COPY main.py .
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
 
-# Copy cookies file if it exists
-COPY youtube_cookies.txt* ./
+# Build the Next.js app
+RUN npm run build
 
-# Expose port
+# Production image
+FROM base AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+# Copy built assets
+COPY --from=builder /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+USER nextjs
+
 EXPOSE 3000
 
-# Health check (using curl with GET instead of wget HEAD)
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+
+# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:3000/api/hello || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/hello || exit 1
 
-# Run the application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3000"]
-
+CMD ["node", "server.js"]

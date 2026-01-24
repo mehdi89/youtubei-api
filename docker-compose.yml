@@ -8,14 +8,12 @@ services:
       - "3000:3000"
     environment:
       - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
-      - YOUTUBE_COOKIES_FILE=/app/youtube_cookies.txt
+      - NODE_ENV=production
     env_file:
       - .env
-    volumes:
-      - ./youtube_cookies.txt:/app/youtube_cookies.txt
     restart: always
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/hello"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/hello"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -33,4 +31,3 @@ services:
         reservations:
           cpus: '0.25'
           memory: 256M
-
