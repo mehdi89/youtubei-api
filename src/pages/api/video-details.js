@@ -187,12 +187,25 @@ async function fetchTranscriptWithInnerTube(videoId) {
       return { success: false, error: 'No caption URL' };
     }
 
-    const response = await fetch(captionUrl);
-    if (!response.ok) {
-      return { success: false, error: `Caption fetch failed: ${response.status}` };
+    // Use the innertube's http client to make the request (includes proper auth)
+    let xml;
+    try {
+      const response = await yt.session.http.fetch(captionUrl);
+      xml = await response.text();
+    } catch (fetchError) {
+      // Fallback to direct fetch with headers
+      const response = await fetch(captionUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Referer': `https://www.youtube.com/watch?v=${videoId}`
+        }
+      });
+      if (!response.ok) {
+        return { success: false, error: `Caption fetch failed: ${response.status}` };
+      }
+      xml = await response.text();
     }
-
-    const xml = await response.text();
 
     // Parse XML to extract text
     const textRegex = /<text[^>]*>([^<]*)<\/text>/g;

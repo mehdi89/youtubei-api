@@ -40,20 +40,34 @@ async function fetchTranscriptWithInnerTube(videoId, langCode = null) {
 
     logger.info(`youtubei.js: Using caption track`, `Video: ${videoId} | Lang: ${track.language_code}`);
 
-    // Fetch the caption XML directly
+    // Fetch the caption XML using the innertube session
     const captionUrl = track.base_url;
     if (!captionUrl) {
       logger.warn(`youtubei.js: No base_url in track`, `Video: ${videoId}`);
       return { success: false, error: 'No caption URL' };
     }
 
-    const response = await fetch(captionUrl);
-    if (!response.ok) {
-      logger.warn(`youtubei.js: Caption fetch failed`, `Video: ${videoId} | Status: ${response.status}`);
-      return { success: false, error: `Caption fetch failed: ${response.status}` };
+    // Use the innertube's http client to make the request (includes proper auth)
+    let xml;
+    try {
+      const response = await yt.session.http.fetch(captionUrl);
+      xml = await response.text();
+    } catch (fetchError) {
+      // Fallback to direct fetch with headers
+      logger.warn(`youtubei.js: Session fetch failed, trying direct`, `Video: ${videoId}`);
+      const response = await fetch(captionUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Referer': `https://www.youtube.com/watch?v=${videoId}`
+        }
+      });
+      if (!response.ok) {
+        logger.warn(`youtubei.js: Caption fetch failed`, `Video: ${videoId} | Status: ${response.status}`);
+        return { success: false, error: `Caption fetch failed: ${response.status}` };
+      }
+      xml = await response.text();
     }
-
-    const xml = await response.text();
 
     // Parse XML to extract text segments
     // Format: <text start="0" dur="5.5">Text here</text>
