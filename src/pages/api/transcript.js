@@ -1,6 +1,7 @@
 import { YoutubeTranscript } from '@/utils/youtube-transcript/dist/youtube-transcript.common.js';
 import logger from "@/utils/logger";
 import cache, { TTL } from '@/utils/cache';
+import { withProxy, isProxyConfigured } from '@/utils/proxy';
 import {
   getInnertube,
   decodeEntities,
@@ -225,19 +226,27 @@ export default async function handler(req, res) {
     }
 
     const options = selectedLang ? { lang: selectedLang } : {};
-    logger.fetch(`Fetching transcript`, `Video: ${id}${selectedLang ? ` | Language: ${selectedLang}` : ''}`);
+    const useProxy = isProxyConfigured();
+    logger.fetch(`Fetching transcript`, `Video: ${id}${selectedLang ? ` | Language: ${selectedLang}` : ''}${useProxy ? ' | Proxy: enabled' : ''}`);
 
     let transcript = null;
     let fetchMethod = '';
 
-    // Try YoutubeTranscript first
+    // Try YoutubeTranscript first (with proxy if configured)
     try {
-      transcript = await YoutubeTranscript.fetchTranscript(id, options);
-      fetchMethod = 'YoutubeTranscript';
+      if (useProxy) {
+        transcript = await withProxy(async () => {
+          return YoutubeTranscript.fetchTranscript(id, options);
+        });
+        fetchMethod = 'YoutubeTranscript+Proxy';
+      } else {
+        transcript = await YoutubeTranscript.fetchTranscript(id, options);
+        fetchMethod = 'YoutubeTranscript';
+      }
     } catch (ytError) {
       logger.warn(`YoutubeTranscript failed, trying youtubei.js`, `Video: ${id}`);
 
-      // Fallback to youtubei.js
+      // Fallback to youtubei.js (without proxy - uses internal session)
       const innertubeResult = await fetchTranscriptWithInnerTube(id, selectedLang);
       if (innertubeResult.success) {
         transcript = innertubeResult.entries;

@@ -7,6 +7,7 @@ import {
   HIGH_CONFIDENCE_LANGUAGES
 } from '@/utils/innertube';
 import cache, { TTL } from '@/utils/cache';
+import { withProxy, isProxyConfigured } from '@/utils/proxy';
 
 // Get API key from environment variables
 const API_KEY = process.env.YOUTUBE_API_KEY;
@@ -263,14 +264,22 @@ async function fetchTranscriptWithInnerTube(videoId) {
 }
 
 async function tryGetTranscriptWithYoutubeTranscript(videoId) {
-  // Try YoutubeTranscript first
+  // Try YoutubeTranscript first (with proxy if configured)
+  const useProxy = isProxyConfigured();
   try {
-    const transcript = await YoutubeTranscript.fetchTranscript(videoId);
+    let transcript;
+    if (useProxy) {
+      transcript = await withProxy(async () => {
+        return YoutubeTranscript.fetchTranscript(videoId);
+      });
+    } else {
+      transcript = await YoutubeTranscript.fetchTranscript(videoId);
+    }
     let text = '';
     transcript.forEach((entry) => {
       text += ' ' + entry.text;
     });
-    return { success: true, content: decodeEntities(text.trim()), method: 'YoutubeTranscript' };
+    return { success: true, content: decodeEntities(text.trim()), method: useProxy ? 'YoutubeTranscript+Proxy' : 'YoutubeTranscript' };
   } catch (error) {
     // Fallback to youtubei.js
     logger.warn(`YoutubeTranscript failed for ${videoId}, trying youtubei.js`);
@@ -319,6 +328,7 @@ async function fetchTranscript(video, videoId) {
 }
 
 async function fetchTimestampedTranscript(videoId) {
+  const useProxy = isProxyConfigured();
   try {
     let selectedLang = null;
     let availableLangCodes = [];
@@ -342,9 +352,16 @@ async function fetchTimestampedTranscript(videoId) {
     }
 
     const options = selectedLang ? { lang: selectedLang } : {};
-    logger.fetch(`Fetching timestamped transcript`, `Video: ${videoId}${selectedLang ? ` | Language: ${selectedLang}` : ''}`);
+    logger.fetch(`Fetching timestamped transcript`, `Video: ${videoId}${selectedLang ? ` | Language: ${selectedLang}` : ''}${useProxy ? ' | Proxy: enabled' : ''}`);
 
-    const transcript = await YoutubeTranscript.fetchTranscript(videoId, options);
+    let transcript;
+    if (useProxy) {
+      transcript = await withProxy(async () => {
+        return YoutubeTranscript.fetchTranscript(videoId, options);
+      });
+    } else {
+      transcript = await YoutubeTranscript.fetchTranscript(videoId, options);
+    }
     logger.info(`Raw transcript data`, `Length: ${transcript.length} entries`);
     
     let timestampedData = '';
