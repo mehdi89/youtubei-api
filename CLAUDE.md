@@ -83,7 +83,22 @@ Expected response:
 | Variable | Description |
 |----------|-------------|
 | `YOUTUBE_API_KEY` | API key for authentication |
+| `EVOMI_API_KEY` | Evomi residential proxy API key (optional, for bypassing YouTube rate limiting) |
 | `NODE_ENV` | Set to `production` in Docker |
+
+## Proxy Configuration
+
+The API uses Evomi residential proxies to bypass YouTube rate limiting for transcript fetching.
+
+- **Provider:** Evomi (https://evomi.com)
+- **Product:** Residential Proxies Core (`rpc`) at $0.49/GB
+- **Usage:** Automatically routes transcript requests through US residential IPs
+- **Fallback:** If proxy is unavailable, falls back to direct connection
+
+To enable proxy:
+1. Get API key from https://dashboard.evomi.com
+2. Add `EVOMI_API_KEY=your_key` to `.env`
+3. Restart the container
 
 ## Project Structure
 
@@ -100,5 +115,8 @@ src/
 │   └── playlist.js
 └── utils/
     ├── innertube.js    # youtubei.js singleton
-    └── logger.js       # Logging utility
+    ├── logger.js       # Logging utility
+    ├── cache.js        # In-memory caching with TTL
+    ├── proxy.js        # Evomi proxy configuration (undici ProxyAgent)
+    └── youtube-transcript/  # YouTube transcript library
 ```

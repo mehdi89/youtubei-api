@@ -1,26 +1,27 @@
 # YouTube API Server
 
-A high-performance YouTube data extraction API built with **FastAPI** and **yt-dlp**. This API provides comprehensive access to YouTube video details, transcripts, search, channel information, and playlists.
+A high-performance YouTube data extraction API built with **Next.js** and **youtubei.js**. This API provides comprehensive access to YouTube video details, transcripts, search, channel information, and playlists.
 
 ## Features
 
-- 🚀 **Fast**: Built with FastAPI for high performance
+- 🚀 **Fast**: Built with Next.js for high performance
 - 🎯 **Complete**: All major YouTube data extraction endpoints
 - 📝 **Transcripts**: Full support for video transcripts with timestamps
 - 🔍 **Search**: Search videos, channels, and playlists
 - 📺 **Channels**: Get channel details, videos, and live streams
 - 📋 **Playlists**: Extract all videos from any playlist
-- 🍪 **Bot Protection**: Cookie-based authentication bypass
+- 🌐 **Proxy Support**: Residential proxy integration to bypass rate limiting
+- 💾 **Caching**: In-memory caching with configurable TTL
 - 🐳 **Docker Ready**: Fully containerized deployment
 - 🔐 **Secure**: API key authentication
 
 ## Tech Stack
 
-- **FastAPI**: Modern Python web framework
-- **yt-dlp**: Powerful YouTube downloader library
-- **Python 3.11**: Latest stable Python
-- **Docker**: Containerized deployment
-- **uvicorn**: High-performance ASGI server
+- **Framework**: Next.js 15
+- **Runtime**: Node.js 20
+- **YouTube Library**: youtubei.js
+- **Proxy**: Evomi residential proxies (via undici ProxyAgent)
+- **Container**: Docker with multi-stage build
 
 ## Quick Start
 
@@ -28,7 +29,7 @@ A high-performance YouTube data extraction API built with **FastAPI** and **yt-d
 
 - Docker and Docker Compose
 - YouTube API Key (set in `.env`)
-- YouTube cookies file (optional, for bot detection bypass)
+- Evomi API Key (optional, for proxy support)
 
 ### Installation
 
@@ -42,26 +43,28 @@ cd youtubei-api
 ```bash
 cp .env.example .env
 # Edit .env and add your YOUTUBE_API_KEY
+# Optionally add EVOMI_API_KEY for proxy support
 ```
 
-3. (Optional) Add YouTube cookies:
-```bash
-# Place your youtube_cookies.txt in the root directory
-# See https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp
-```
-
-4. Build and run with Docker:
+3. Build and run with Docker:
 ```bash
 docker-compose build
 docker-compose up -d
 ```
 
-5. Check health:
+4. Check health:
 ```bash
 curl http://localhost:3000/api/hello
 ```
 
+Expected response:
+```json
+{"message":"Hello from YouTube API","version":"2.0.0","powered_by":"youtubei.js"}
+```
+
 ## API Endpoints
+
+All endpoints require `api-key` header matching `YOUTUBE_API_KEY` env var.
 
 ### Health Check
 ```bash
@@ -129,6 +132,17 @@ api-key: YOUR_API_KEY
 }
 ```
 
+### Channel Live Videos
+```bash
+POST /api/channel-live-videos
+Content-Type: application/json
+api-key: YOUR_API_KEY
+
+{
+  "id": "CHANNEL_ID"
+}
+```
+
 ### Playlist Videos
 ```bash
 POST /api/playlist
@@ -141,7 +155,34 @@ api-key: YOUR_API_KEY
 }
 ```
 
-For complete API documentation with request/response examples, see [API_DOCUMENTATION.md](./docs/API_DOCUMENTATION.md).
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `YOUTUBE_API_KEY` | Yes | API key for authentication |
+| `EVOMI_API_KEY` | No | Evomi residential proxy API key for bypassing rate limiting |
+| `NODE_ENV` | No | Set to `production` in Docker |
+
+## Proxy Configuration
+
+The API supports Evomi residential proxies to bypass YouTube rate limiting for transcript fetching.
+
+### Setup
+
+1. Get API key from https://dashboard.evomi.com
+2. Add to `.env`:
+```bash
+EVOMI_API_KEY=your_api_key_here
+```
+3. Restart the container
+
+### How it works
+
+- **Provider**: Evomi Residential Proxies Core
+- **Cost**: $0.49/GB
+- **Automatic**: Transcript requests automatically route through US residential IPs
+- **Fallback**: If proxy fails, falls back to direct connection
+- **Caching**: Proxy credentials cached for 1 hour
 
 ## Docker Deployment
 
@@ -161,84 +202,71 @@ docker-compose logs -f
 docker-compose down
 ```
 
-### Environment Variables
+### Docker Compose Features
 
-- `YOUTUBE_API_KEY`: Your API key for authentication
-- `PORT`: Server port (default: 3000)
-
-### Docker Compose Configuration
-
-The `docker-compose.yml` includes:
-- Health checks
+- Health checks (every 30s)
 - Resource limits (1 CPU, 1GB RAM)
-- Log rotation
+- Log rotation (10MB, 3 files)
 - Auto-restart policy
 
 ## Local Development
 
-### Without Docker
-
-1. Install Python 3.11+
-2. Install dependencies:
 ```bash
-pip install -r requirements.txt
+# Install dependencies
+npm install
+
+# Run development server
+npm run dev
+
+# Build for production
+npm run build
+
+# Start production server
+npm start
 ```
-
-3. Run the server:
-```bash
-python main.py
-```
-
-4. Access at http://localhost:3000
-
-### With Auto-reload
-
-```bash
-uvicorn main:app --reload --host 0.0.0.0 --port 3000
-```
-
-## YouTube Cookies Setup
-
-To bypass YouTube's bot detection, you need to provide cookies from an authenticated YouTube session:
-
-1. Install a browser extension to export cookies (e.g., "Get cookies.txt LOCALLY")
-2. Visit youtube.com and log in
-3. Export cookies in Netscape format
-4. Save as `youtube_cookies.txt` in the project root
-5. Rebuild the Docker image
-
-The API will automatically detect and use the cookies file.
 
 ## Project Structure
 
 ```
-.
-├── main.py                 # FastAPI application
-├── requirements.txt        # Python dependencies
-├── Dockerfile             # Docker build configuration
-├── docker-compose.yml     # Docker Compose setup
-├── youtube_cookies.txt    # YouTube cookies (optional)
-├── .env                   # Environment variables
-├── API_DOCUMENTATION.md   # Complete API reference
-├── FEATURE_EXPANSION.md   # Feature roadmap
-└── README.md             # This file
+src/
+├── pages/api/              # API endpoints
+│   ├── hello.js
+│   ├── video-details.js
+│   ├── transcript.js
+│   ├── search.js
+│   ├── channel-details.js
+│   ├── channel-videos.js
+│   ├── channel-live-videos.js
+│   └── playlist.js
+└── utils/
+    ├── innertube.js        # youtubei.js singleton
+    ├── logger.js           # Logging utility
+    ├── cache.js            # In-memory caching with TTL
+    ├── proxy.js            # Evomi proxy configuration
+    └── youtube-transcript/ # YouTube transcript library
 ```
+
+## Caching
+
+The API implements in-memory caching with configurable TTL:
+
+| Data Type | TTL |
+|-----------|-----|
+| Video details | 1 hour |
+| Transcripts | 24 hours |
+| Channel info | 1 hour |
+| Search results | 30 minutes |
 
 ## Error Handling
 
-The API provides consistent error responses:
+Consistent error responses:
 
 - **401**: Invalid API key
-- **403**: YouTube bot detection (cookies may be expired)
+- **403**: Video unavailable or private
 - **404**: Resource not found
+- **405**: Method not allowed
 - **500**: Internal server error
-
-## Performance
-
-- Supports concurrent requests
-- Response caching via yt-dlp
-- Resource limits configurable in docker-compose.yml
-- Typical response times: 1-3 seconds per request
+- **503**: Network error / YouTube unavailable
 
 ## Monitoring
 
@@ -252,19 +280,25 @@ Check container status:
 docker-compose ps
 ```
 
-Health check endpoint:
+Health check:
 ```bash
 curl http://localhost:3000/api/hello
 ```
 
 ## Troubleshooting
 
-### Bot Detection Errors
+### Rate Limiting (429 errors)
 
-If you see "Sign in to confirm you're not a bot":
-1. Update your `youtube_cookies.txt` file
-2. Rebuild: `docker-compose build`
-3. Restart: `docker-compose up -d`
+If you see transcript failures due to rate limiting:
+1. Enable Evomi proxy by adding `EVOMI_API_KEY` to `.env`
+2. Rebuild and restart: `docker-compose up --build -d`
+
+### No Transcripts Available
+
+Some videos don't have transcripts:
+- Shorts (usually no captions)
+- Live streams (captions disabled)
+- Videos where creator disabled captions
 
 ### High Memory Usage
 
@@ -276,33 +310,6 @@ deploy:
       memory: 2G  # Increase if needed
 ```
 
-### Slow Response Times
-
-- Check Docker resource allocation
-- Consider enabling response caching
-- Monitor concurrent request load
-
-## Migration from Node.js
-
-This is a complete rewrite from the previous Node.js implementation. The API maintains **100% backward compatibility** with all request and response formats.
-
-For the old Node.js documentation, see [docs/README-OLD-NODEJS.md](./docs/README-OLD-NODEJS.md).
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
 ## License
 
-[Your License Here]
-
-## Support
-
-For issues and questions:
-- Open an issue on GitHub
-- Check [API_DOCUMENTATION.md](./docs/API_DOCUMENTATION.md) for usage details
-- Review [FEATURE_EXPANSION.md](./docs/FEATURE_EXPANSION.md) for planned features
+MIT
