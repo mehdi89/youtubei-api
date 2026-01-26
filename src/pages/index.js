@@ -14,8 +14,8 @@ const API_ENDPOINTS = {
 
 const TABS = ['Search', 'Video Details', 'Channel Details', 'Playlist'];
 
-export default function TestUI() {
-  const [apiKey, setApiKey] = useState('');
+export default function TestUI({ initialApiKey }) {
+  const [apiKey, setApiKey] = useState(initialApiKey || '');
   const [activeTab, setActiveTab] = useState('Search');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -1780,3 +1780,12 @@ const styles = {
     margin: 0,
   },
 };
+
+// Load API key from environment
+export async function getServerSideProps() {
+  return {
+    props: {
+      initialApiKey: process.env.YOUTUBE_API_KEY || '',
+    },
+  };
+}
