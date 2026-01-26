@@ -514,22 +514,28 @@ function ResultsDisplay({ result, type, searchType, onVideoClick, onChannelClick
     );
   }
 
-  // Channel details
-  if (type === 'Channel Details' && result.data) {
-    const channel = result.data;
+  // Channel details - handle both array and {data: ...} format
+  if (type === 'Channel Details') {
+    // Check if it's channel videos (array at top level or in data)
+    const videos = Array.isArray(result) ? result : (Array.isArray(result.data) ? result.data : null);
 
-    // Check if it's channel videos (array)
-    if (Array.isArray(channel)) {
-      if (channel.length === 0) {
+    if (videos) {
+      if (videos.length === 0) {
         return <div style={styles.noResults}>No videos found</div>;
       }
       return (
         <div style={styles.grid}>
-          {channel.map((video, index) => (
-            <VideoCard key={video.id || index} video={video} />
+          {videos.map((video, index) => (
+            <VideoCard key={video.id || index} video={video} onVideoClick={onVideoClick} />
           ))}
         </div>
       );
+    }
+
+    // Channel info object
+    const channel = result.data || result;
+    if (!channel || typeof channel !== 'object') {
+      return <pre style={styles.jsonPre}>{JSON.stringify(result, null, 2)}</pre>;
     }
 
     return (
