@@ -316,7 +316,7 @@ export default function TestUI() {
               {/* Toggle Button */}
               <div style={styles.resultsHeader}>
                 <h3 style={styles.resultsTitle}>
-                  Results {result.data && Array.isArray(result.data) ? `(${result.data.length} items)` : ''}
+                  Results {Array.isArray(result) ? `(${result.length} items)` : (result.data && Array.isArray(result.data) ? `(${result.data.length} items)` : '')}
                 </h3>
                 <button
                   onClick={() => setShowRawData(!showRawData)}
@@ -366,15 +366,17 @@ function ResultsDisplay({ result, type, searchType }) {
     );
   }
 
-  // Search results
-  if (type === 'Search' && result.data) {
-    if (result.data.length === 0) {
+  // Search results - handle both array and {data: [...]} format
+  if (type === 'Search') {
+    const items = Array.isArray(result) ? result : (result.data || []);
+
+    if (items.length === 0) {
       return <div style={styles.noResults}>No results found</div>;
     }
 
     return (
       <div style={styles.grid}>
-        {result.data.map((item, index) => (
+        {items.map((item, index) => (
           <SearchResultCard key={item.id || index} item={item} type={searchType} />
         ))}
       </div>
@@ -664,61 +666,131 @@ function SearchResultCard({ item, type }) {
   }
 
   if (type === 'channel') {
+    // Handle different API response formats
+    const name = item.name || item.title || item.channelName;
+    const thumbnail = item.thumbnail || item.channelThumbnail;
+    const subscriberCount = item.subscriber_count || item.subscriberCount || item.subscribers;
+    const videoCount = item.video_count || item.videoCount || item.videosCount;
+    const description = item.description || item.descriptionSnippet;
+    const handle = item.handle || item.channelHandle;
+
     return (
-      <div style={styles.channelCard}>
-        <div style={styles.channelCardAvatar}>
-          {item.thumbnail ? (
-            <img src={item.thumbnail} alt={item.name} style={styles.channelCardImg} />
-          ) : (
-            <span style={styles.channelCardInitial}>{item.name?.charAt(0) || 'C'}</span>
-          )}
+      <a
+        href={`https://www.youtube.com/channel/${item.id || item.channelID}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={styles.channelCardLink}
+      >
+        <div style={styles.channelCard}>
+          <div style={styles.channelCardAvatar}>
+            {thumbnail ? (
+              <img src={thumbnail} alt={name} style={styles.channelCardImg} />
+            ) : (
+              <span style={styles.channelCardInitial}>{name?.charAt(0) || 'C'}</span>
+            )}
+          </div>
+          <div style={styles.channelCardInfo}>
+            <h4 style={styles.channelCardName}>
+              {name}
+              {item.isVerified && (
+                <svg viewBox="0 0 24 24" width="14" height="14" style={styles.verifiedIcon}>
+                  <path fill="#aaa" d="M12,2C6.5,2,2,6.5,2,12s4.5,10,10,10s10-4.5,10-10S17.5,2,12,2z M10,17l-5-5l1.4-1.4l3.6,3.6l7.6-7.6L19,8L10,17z"/>
+                </svg>
+              )}
+            </h4>
+            {handle && <p style={styles.channelCardHandle}>{handle}</p>}
+            <p style={styles.channelCardMeta}>
+              {subscriberCount && <span>{formatSubscribers(subscriberCount)}</span>}
+              {videoCount && <span> • {videoCount} videos</span>}
+            </p>
+            {description && (
+              <p style={styles.channelCardDesc}>
+                {description.length > 120 ? description.substring(0, 120) + '...' : description}
+              </p>
+            )}
+          </div>
         </div>
-        <div style={styles.channelCardInfo}>
-          <h4 style={styles.channelCardName}>
-            {item.name}
-            {item.isVerified && <span style={styles.verifiedSmall}> ✓</span>}
-          </h4>
-          <p style={styles.channelCardMeta}>
-            {item.subscriber_count} {item.video_count && `• ${item.video_count}`}
-          </p>
-          {item.description && (
-            <p style={styles.channelCardDesc}>{item.description.substring(0, 120)}...</p>
-          )}
-        </div>
-      </div>
+      </a>
     );
   }
 
   if (type === 'playlist') {
+    // Handle different API response formats
+    const title = item.title || item.name;
+    const thumbnail = item.thumbnail || item.thumbnailUrl;
+    const videoCount = item.video_count || item.videoCount || item.videosCount;
+    const author = item.author || item.channelName || item.owner;
+
     return (
-      <div style={styles.playlistCard}>
-        <div style={styles.playlistCardThumb}>
-          <img
-            src={item.thumbnail || 'https://via.placeholder.com/320x180'}
-            alt={item.title}
-            style={styles.playlistCardImg}
-          />
-          <div style={styles.playlistCardOverlay}>
-            <span style={styles.playlistCardCount}>{item.video_count}</span>
-            <svg viewBox="0 0 24 24" width="24" height="24" style={{marginTop: 4}}>
-              <path fill="#fff" d="M15,6H3v2h12V6z M15,10H3v2h12V10z M3,16h8v-2H3V16z M17,6v8.18C16.69,14.07,16.35,14,16,14c-1.66,0-3,1.34-3,3s1.34,3,3,3s3-1.34,3-3V8h3V6H17z"/>
-            </svg>
+      <a
+        href={`https://www.youtube.com/playlist?list=${item.id || item.playlistId}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={styles.playlistCardLink}
+      >
+        <div style={styles.playlistCard}>
+          <div style={styles.playlistCardThumb}>
+            <img
+              src={thumbnail || 'https://via.placeholder.com/320x180?text=Playlist'}
+              alt={title}
+              style={styles.playlistCardImg}
+              onError={(e) => {
+                e.target.src = 'https://via.placeholder.com/320x180?text=Playlist';
+              }}
+            />
+            <div style={styles.playlistCardOverlay}>
+              <span style={styles.playlistCardCount}>{videoCount || '?'}</span>
+              <svg viewBox="0 0 24 24" width="24" height="24" style={{marginTop: 4}}>
+                <path fill="#fff" d="M15,6H3v2h12V6z M15,10H3v2h12V10z M3,16h8v-2H3V16z M17,6v8.18C16.69,14.07,16.35,14,16,14c-1.66,0-3,1.34-3,3s1.34,3,3,3s3-1.34,3-3V8h3V6H17z"/>
+              </svg>
+            </div>
+          </div>
+          <div style={styles.playlistCardInfo}>
+            <h4 style={styles.playlistCardTitle}>{title}</h4>
+            {author && <p style={styles.playlistCardAuthor}>{author}</p>}
+            <p style={styles.playlistCardMeta}>View full playlist</p>
           </div>
         </div>
-        <div style={styles.playlistCardInfo}>
-          <h4 style={styles.playlistCardTitle}>{item.title}</h4>
-          <p style={styles.playlistCardAuthor}>{item.author}</p>
-          <p style={styles.playlistCardMeta}>View full playlist</p>
-        </div>
-      </div>
+      </a>
     );
   }
 
   return null;
 }
 
+// Format subscriber count
+function formatSubscribers(count) {
+  if (!count) return '';
+  if (typeof count === 'string') return count;
+  if (count >= 1000000) return (count / 1000000).toFixed(1) + 'M subscribers';
+  if (count >= 1000) return (count / 1000).toFixed(1) + 'K subscribers';
+  return count + ' subscribers';
+}
+
+// Format duration from seconds to mm:ss or hh:mm:ss
+function formatDuration(seconds) {
+  if (!seconds) return null;
+  if (typeof seconds === 'string') return seconds;
+
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+
+  if (hrs > 0) {
+    return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  }
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
 // Video Card
 function VideoCard({ video }) {
+  // Handle different API response formats
+  const channelName = video.channelName || video.channel?.name || video.author;
+  const viewCount = video.viewCount || video.view_count;
+  const uploadDate = video.uploadDate || video.published;
+  const duration = typeof video.duration === 'number' ? formatDuration(video.duration) : video.duration;
+  const isVerified = video.isVerified || video.channel?.isVerified || video.channelVerified;
+
   return (
     <a
       href={`https://www.youtube.com/watch?v=${video.id}`}
@@ -728,6 +800,12 @@ function VideoCard({ video }) {
     >
       <div style={styles.videoCard}>
         <div style={styles.videoCardThumb}>
+          {/* Channel Thumbnail Avatar */}
+          {video.channelThumbnail && (
+            <div style={styles.videoCardChannelAvatar}>
+              <img src={video.channelThumbnail} alt={channelName} style={styles.videoCardChannelImg} />
+            </div>
+          )}
           <img
             src={video.thumbnail || `https://img.youtube.com/vi/${video.id}/mqdefault.jpg`}
             alt={video.title}
@@ -736,25 +814,38 @@ function VideoCard({ video }) {
               e.target.src = 'https://via.placeholder.com/320x180?text=No+Thumbnail';
             }}
           />
-          {video.duration && <span style={styles.videoDuration}>{video.duration}</span>}
+          {duration && !video.isLive && <span style={styles.videoDuration}>{duration}</span>}
           {video.isLive && <span style={styles.liveIndicator}>LIVE</span>}
           {video.isShort && <span style={styles.shortIndicator}>SHORT</span>}
           {video.isUpcoming && <span style={styles.upcomingIndicator}>UPCOMING</span>}
         </div>
         <div style={styles.videoCardContent}>
           <h4 style={styles.videoCardTitle}>{video.title}</h4>
-          <p style={styles.videoCardChannel}>
-            {video.channel?.name || video.author}
-            {(video.isVerified || video.channel?.isVerified) && (
-              <span style={styles.verifiedSmall}> ✓</span>
-            )}
-          </p>
+          <div style={styles.videoCardChannelRow}>
+            <p style={styles.videoCardChannel}>
+              {channelName}
+              {isVerified && (
+                <svg viewBox="0 0 24 24" width="14" height="14" style={styles.verifiedIcon}>
+                  <path fill="#aaa" d="M12,2C6.5,2,2,6.5,2,12s4.5,10,10,10s10-4.5,10-10S17.5,2,12,2z M10,17l-5-5l1.4-1.4l3.6,3.6l7.6-7.6L19,8L10,17z"/>
+                </svg>
+              )}
+            </p>
+          </div>
           <p style={styles.videoCardMeta}>
-            {video.view_count || (video.viewCount && formatNumber(video.viewCount) + ' views')}
-            {(video.published || video.uploadDate) && ` • ${video.published || video.uploadDate}`}
+            {viewCount && <span>{formatNumber(viewCount)} views</span>}
+            {viewCount && uploadDate && <span> • </span>}
+            {uploadDate && <span>{uploadDate}</span>}
           </p>
           {video.watchingCount && (
             <p style={styles.watchingNow}>{formatNumber(video.watchingCount)} watching now</p>
+          )}
+          {/* Badges */}
+          {video.badges && video.badges.length > 0 && (
+            <div style={styles.badgesRow}>
+              {video.badges.map((badge, i) => (
+                <span key={i} style={styles.badge}>{badge}</span>
+              ))}
+            </div>
           )}
         </div>
       </div>
@@ -1122,7 +1213,50 @@ const styles = {
     color: '#aaa',
     fontSize: '12px',
   },
+  verifiedIcon: {
+    marginLeft: '4px',
+    verticalAlign: 'middle',
+  },
+  videoCardChannelRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  },
+  videoCardChannelAvatar: {
+    position: 'absolute',
+    bottom: '8px',
+    left: '8px',
+    width: '28px',
+    height: '28px',
+    borderRadius: '50%',
+    overflow: 'hidden',
+    border: '2px solid #0f0f0f',
+    backgroundColor: '#303030',
+  },
+  videoCardChannelImg: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+  },
+  badgesRow: {
+    display: 'flex',
+    gap: '6px',
+    marginTop: '6px',
+    flexWrap: 'wrap',
+  },
+  badge: {
+    backgroundColor: '#303030',
+    color: '#aaa',
+    padding: '2px 8px',
+    borderRadius: '4px',
+    fontSize: '11px',
+    fontWeight: '500',
+  },
   // Channel Card
+  channelCardLink: {
+    textDecoration: 'none',
+    color: 'inherit',
+  },
   channelCard: {
     display: 'flex',
     gap: '16px',
@@ -1130,6 +1264,7 @@ const styles = {
     backgroundColor: '#181818',
     borderRadius: '12px',
     alignItems: 'center',
+    transition: 'background-color 0.2s',
   },
   channelCardAvatar: {
     width: '88px',
@@ -1161,6 +1296,11 @@ const styles = {
     margin: '0 0 4px 0',
     color: '#fff',
   },
+  channelCardHandle: {
+    fontSize: '12px',
+    color: '#717171',
+    margin: '0 0 4px 0',
+  },
   channelCardMeta: {
     fontSize: '13px',
     color: '#aaa',
@@ -1173,8 +1313,13 @@ const styles = {
     lineHeight: '1.4',
   },
   // Playlist Card
+  playlistCardLink: {
+    textDecoration: 'none',
+    color: 'inherit',
+  },
   playlistCard: {
     cursor: 'pointer',
+    transition: 'transform 0.2s',
   },
   playlistCardThumb: {
     position: 'relative',
