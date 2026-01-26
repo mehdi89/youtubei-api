@@ -337,7 +337,23 @@ export default function TestUI({ initialApiKey }) {
 
               {/* Visual Results */}
               <div style={styles.visualResults}>
-                <ResultsDisplay result={result} type={activeTab} searchType={searchType} />
+                <ResultsDisplay
+                  result={result}
+                  type={activeTab}
+                  searchType={searchType}
+                  onVideoClick={(id) => {
+                    setVideoId(id);
+                    setActiveTab('Video Details');
+                    setResult(null);
+                    setError(null);
+                  }}
+                  onChannelClick={(id) => {
+                    setChannelId(id);
+                    setActiveTab('Channel Details');
+                    setResult(null);
+                    setError(null);
+                  }}
+                />
               </div>
             </div>
           )}
@@ -348,7 +364,7 @@ export default function TestUI({ initialApiKey }) {
 }
 
 // Results Display Component
-function ResultsDisplay({ result, type, searchType }) {
+function ResultsDisplay({ result, type, searchType, onVideoClick, onChannelClick }) {
   if (!result) return null;
 
   // Health check
@@ -377,7 +393,13 @@ function ResultsDisplay({ result, type, searchType }) {
     return (
       <div style={styles.grid}>
         {items.map((item, index) => (
-          <SearchResultCard key={item.id || index} item={item} type={searchType} />
+          <SearchResultCard
+            key={item.id || index}
+            item={item}
+            type={searchType}
+            onVideoClick={onVideoClick}
+            onChannelClick={onChannelClick}
+          />
         ))}
       </div>
     );
@@ -660,9 +682,9 @@ function PlaylistVideoItem({ video, index }) {
 }
 
 // Search Result Card
-function SearchResultCard({ item, type }) {
+function SearchResultCard({ item, type, onVideoClick, onChannelClick }) {
   if (type === 'video') {
-    return <VideoCard video={item} />;
+    return <VideoCard video={item} onVideoClick={onVideoClick} onChannelClick={onChannelClick} />;
   }
 
   if (type === 'channel') {
@@ -673,44 +695,41 @@ function SearchResultCard({ item, type }) {
     const videoCount = item.video_count || item.videoCount || item.videosCount;
     const description = item.description || item.descriptionSnippet;
     const handle = item.handle || item.channelHandle;
+    const channelId = item.id || item.channelID;
 
     return (
-      <a
-        href={`https://www.youtube.com/channel/${item.id || item.channelID}`}
-        target="_blank"
-        rel="noopener noreferrer"
-        style={styles.channelCardLink}
+      <div
+        style={styles.channelCard}
+        onClick={() => onChannelClick && onChannelClick(channelId)}
       >
-        <div style={styles.channelCard}>
-          <div style={styles.channelCardAvatar}>
-            {thumbnail ? (
-              <img src={thumbnail} alt={name} style={styles.channelCardImg} />
-            ) : (
-              <span style={styles.channelCardInitial}>{name?.charAt(0) || 'C'}</span>
-            )}
-          </div>
-          <div style={styles.channelCardInfo}>
-            <h4 style={styles.channelCardName}>
-              {name}
-              {item.isVerified && (
-                <svg viewBox="0 0 24 24" width="14" height="14" style={styles.verifiedIcon}>
-                  <path fill="#aaa" d="M12,2C6.5,2,2,6.5,2,12s4.5,10,10,10s10-4.5,10-10S17.5,2,12,2z M10,17l-5-5l1.4-1.4l3.6,3.6l7.6-7.6L19,8L10,17z"/>
-                </svg>
-              )}
-            </h4>
-            {handle && <p style={styles.channelCardHandle}>{handle}</p>}
-            <p style={styles.channelCardMeta}>
-              {subscriberCount && <span>{formatSubscribers(subscriberCount)}</span>}
-              {videoCount && <span> • {videoCount} videos</span>}
-            </p>
-            {description && (
-              <p style={styles.channelCardDesc}>
-                {description.length > 120 ? description.substring(0, 120) + '...' : description}
-              </p>
-            )}
-          </div>
+        <div style={styles.channelCardAvatar}>
+          {thumbnail ? (
+            <img src={thumbnail} alt={name} style={styles.channelCardImg} />
+          ) : (
+            <span style={styles.channelCardInitial}>{name?.charAt(0) || 'C'}</span>
+          )}
         </div>
-      </a>
+        <div style={styles.channelCardInfo}>
+          <h4 style={styles.channelCardName}>
+            {name}
+            {item.isVerified && (
+              <svg viewBox="0 0 24 24" width="14" height="14" style={styles.verifiedIcon}>
+                <path fill="#aaa" d="M12,2C6.5,2,2,6.5,2,12s4.5,10,10,10s10-4.5,10-10S17.5,2,12,2z M10,17l-5-5l1.4-1.4l3.6,3.6l7.6-7.6L19,8L10,17z"/>
+              </svg>
+            )}
+          </h4>
+          {handle && <p style={styles.channelCardHandle}>{handle}</p>}
+          <p style={styles.channelCardMeta}>
+            {subscriberCount && <span>{formatSubscribers(subscriberCount)}</span>}
+            {videoCount && <span> • {videoCount} videos</span>}
+          </p>
+          {description && (
+            <p style={styles.channelCardDesc}>
+              {description.length > 120 ? description.substring(0, 120) + '...' : description}
+            </p>
+          )}
+        </div>
+      </div>
     );
   }
 
@@ -783,73 +802,88 @@ function formatDuration(seconds) {
 }
 
 // Video Card
-function VideoCard({ video }) {
+function VideoCard({ video, onVideoClick, onChannelClick }) {
   // Handle different API response formats
   const channelName = video.channelName || video.channel?.name || video.author;
+  const channelId = video.channelID || video.channel?.id;
   const viewCount = video.viewCount || video.view_count;
   const uploadDate = video.uploadDate || video.published;
   const duration = typeof video.duration === 'number' ? formatDuration(video.duration) : video.duration;
   const isVerified = video.isVerified || video.channel?.isVerified || video.channelVerified;
 
+  const handleCardClick = (e) => {
+    if (onVideoClick) {
+      e.preventDefault();
+      onVideoClick(video.id);
+    }
+  };
+
+  const handleChannelClick = (e) => {
+    if (onChannelClick && channelId) {
+      e.preventDefault();
+      e.stopPropagation();
+      onChannelClick(channelId);
+    }
+  };
+
   return (
-    <a
-      href={`https://www.youtube.com/watch?v=${video.id}`}
-      target="_blank"
-      rel="noopener noreferrer"
-      style={styles.videoCardLink}
+    <div
+      style={styles.videoCard}
+      onClick={handleCardClick}
     >
-      <div style={styles.videoCard}>
-        <div style={styles.videoCardThumb}>
-          {/* Channel Thumbnail Avatar */}
-          {video.channelThumbnail && (
-            <div style={styles.videoCardChannelAvatar}>
-              <img src={video.channelThumbnail} alt={channelName} style={styles.videoCardChannelImg} />
-            </div>
-          )}
-          <img
-            src={video.thumbnail || `https://img.youtube.com/vi/${video.id}/mqdefault.jpg`}
-            alt={video.title}
-            style={styles.videoCardImg}
-            onError={(e) => {
-              e.target.src = 'https://via.placeholder.com/320x180?text=No+Thumbnail';
-            }}
-          />
-          {duration && !video.isLive && <span style={styles.videoDuration}>{duration}</span>}
-          {video.isLive && <span style={styles.liveIndicator}>LIVE</span>}
-          {video.isShort && <span style={styles.shortIndicator}>SHORT</span>}
-          {video.isUpcoming && <span style={styles.upcomingIndicator}>UPCOMING</span>}
-        </div>
-        <div style={styles.videoCardContent}>
-          <h4 style={styles.videoCardTitle}>{video.title}</h4>
-          <div style={styles.videoCardChannelRow}>
-            <p style={styles.videoCardChannel}>
-              {channelName}
-              {isVerified && (
-                <svg viewBox="0 0 24 24" width="14" height="14" style={styles.verifiedIcon}>
-                  <path fill="#aaa" d="M12,2C6.5,2,2,6.5,2,12s4.5,10,10,10s10-4.5,10-10S17.5,2,12,2z M10,17l-5-5l1.4-1.4l3.6,3.6l7.6-7.6L19,8L10,17z"/>
-                </svg>
-              )}
-            </p>
+      <div style={styles.videoCardThumb}>
+        {/* Channel Thumbnail Avatar */}
+        {video.channelThumbnail && (
+          <div style={styles.videoCardChannelAvatar} onClick={handleChannelClick}>
+            <img src={video.channelThumbnail} alt={channelName} style={styles.videoCardChannelImg} />
           </div>
-          <p style={styles.videoCardMeta}>
-            {viewCount && <span>{formatNumber(viewCount)} views</span>}
-            {viewCount && uploadDate && <span> • </span>}
-            {uploadDate && <span>{uploadDate}</span>}
-          </p>
-          {video.watchingCount && (
-            <p style={styles.watchingNow}>{formatNumber(video.watchingCount)} watching now</p>
-          )}
-          {/* Badges */}
-          {video.badges && video.badges.length > 0 && (
-            <div style={styles.badgesRow}>
-              {video.badges.map((badge, i) => (
-                <span key={i} style={styles.badge}>{badge}</span>
-              ))}
-            </div>
-          )}
-        </div>
+        )}
+        <img
+          src={video.thumbnail || `https://img.youtube.com/vi/${video.id}/mqdefault.jpg`}
+          alt={video.title}
+          style={styles.videoCardImg}
+          onError={(e) => {
+            e.target.src = 'https://via.placeholder.com/320x180?text=No+Thumbnail';
+          }}
+        />
+        {duration && !video.isLive && <span style={styles.videoDuration}>{duration}</span>}
+        {video.isLive && <span style={styles.liveIndicator}>LIVE</span>}
+        {video.isShort && <span style={styles.shortIndicator}>SHORT</span>}
+        {video.isUpcoming && <span style={styles.upcomingIndicator}>UPCOMING</span>}
       </div>
-    </a>
+      <div style={styles.videoCardContent}>
+        <h4 style={styles.videoCardTitle}>{video.title}</h4>
+        <div style={styles.videoCardChannelRow}>
+          <p
+            style={styles.videoCardChannelClickable}
+            onClick={handleChannelClick}
+          >
+            {channelName}
+            {isVerified && (
+              <svg viewBox="0 0 24 24" width="14" height="14" style={styles.verifiedIcon}>
+                <path fill="#aaa" d="M12,2C6.5,2,2,6.5,2,12s4.5,10,10,10s10-4.5,10-10S17.5,2,12,2z M10,17l-5-5l1.4-1.4l3.6,3.6l7.6-7.6L19,8L10,17z"/>
+              </svg>
+            )}
+          </p>
+        </div>
+        <p style={styles.videoCardMeta}>
+          {viewCount && <span>{formatNumber(viewCount)} views</span>}
+          {viewCount && uploadDate && <span> • </span>}
+          {uploadDate && <span>{uploadDate}</span>}
+        </p>
+        {video.watchingCount && (
+          <p style={styles.watchingNow}>{formatNumber(video.watchingCount)} watching now</p>
+        )}
+        {/* Badges */}
+        {video.badges && video.badges.length > 0 && (
+          <div style={styles.badgesRow}>
+            {video.badges.map((badge, i) => (
+              <span key={i} style={styles.badge}>{badge}</span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -1121,7 +1155,7 @@ const styles = {
   },
   videoCard: {
     cursor: 'pointer',
-    transition: 'transform 0.2s',
+    transition: 'opacity 0.2s',
   },
   videoCardThumb: {
     position: 'relative',
@@ -1198,6 +1232,14 @@ const styles = {
     color: '#aaa',
     margin: '0 0 4px 0',
   },
+  videoCardChannelClickable: {
+    fontSize: '12px',
+    color: '#aaa',
+    margin: '0 0 4px 0',
+    cursor: 'pointer',
+    display: 'inline-flex',
+    alignItems: 'center',
+  },
   videoCardMeta: {
     fontSize: '12px',
     color: '#aaa',
@@ -1265,6 +1307,7 @@ const styles = {
     borderRadius: '12px',
     alignItems: 'center',
     transition: 'background-color 0.2s',
+    cursor: 'pointer',
   },
   channelCardAvatar: {
     width: '88px',
