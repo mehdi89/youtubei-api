@@ -612,11 +612,12 @@ function ResultsDisplay({ result, type, searchType, onVideoClick, onChannelClick
     );
   }
 
-  // Playlist
+  // Playlist - handle both array and {data: ...} format
   if (type === 'Playlist') {
-    const data = result.data;
-    const videos = data.videos || data;
-    const playlist = data.playlist;
+    // Handle different response formats
+    const data = result.data || result;
+    const videos = Array.isArray(data) ? data : (data.videos || []);
+    const playlist = Array.isArray(data) ? null : data.playlist;
 
     if (!Array.isArray(videos) || videos.length === 0) {
       return <div style={styles.noResults}>No videos in playlist</div>;
@@ -653,7 +654,13 @@ function ResultsDisplay({ result, type, searchType, onVideoClick, onChannelClick
         {/* Videos List */}
         <div style={styles.playlistVideos}>
           {videos.map((video, index) => (
-            <PlaylistVideoItem key={video.id || index} video={video} index={index + 1} />
+            <PlaylistVideoItem
+              key={video.id || index}
+              video={video}
+              index={index + 1}
+              onVideoClick={onVideoClick}
+              onChannelClick={onChannelClick}
+            />
           ))}
         </div>
       </div>
@@ -664,9 +671,26 @@ function ResultsDisplay({ result, type, searchType, onVideoClick, onChannelClick
 }
 
 // Playlist Video Item (horizontal layout)
-function PlaylistVideoItem({ video, index }) {
+function PlaylistVideoItem({ video, index, onVideoClick, onChannelClick }) {
+  const channelName = video.channelName || video.channel?.name || video.author;
+  const channelId = video.channelID || video.channel?.id;
+  const duration = typeof video.duration === 'number' ? formatDuration(video.duration) : video.duration;
+
+  const handleClick = () => {
+    if (onVideoClick) {
+      onVideoClick(video.id);
+    }
+  };
+
+  const handleChannelClick = (e) => {
+    if (onChannelClick && channelId) {
+      e.stopPropagation();
+      onChannelClick(channelId);
+    }
+  };
+
   return (
-    <div style={styles.playlistItem}>
+    <div style={styles.playlistItem} onClick={handleClick}>
       <span style={styles.playlistIndex}>{index}</span>
       <div style={styles.playlistItemThumb}>
         <img
@@ -677,11 +701,16 @@ function PlaylistVideoItem({ video, index }) {
             e.target.src = 'https://via.placeholder.com/120x68?text=No+Thumbnail';
           }}
         />
-        {video.duration && <span style={styles.playlistItemDuration}>{video.duration}</span>}
+        {duration && <span style={styles.playlistItemDuration}>{duration}</span>}
       </div>
       <div style={styles.playlistItemInfo}>
         <h4 style={styles.playlistItemTitle}>{video.title}</h4>
-        <p style={styles.playlistItemChannel}>{video.channel?.name || video.author}</p>
+        <p
+          style={styles.playlistItemChannelClickable}
+          onClick={handleChannelClick}
+        >
+          {channelName}
+        </p>
       </div>
     </div>
   );
@@ -1827,6 +1856,12 @@ const styles = {
     fontSize: '12px',
     color: '#aaa',
     margin: 0,
+  },
+  playlistItemChannelClickable: {
+    fontSize: '12px',
+    color: '#aaa',
+    margin: 0,
+    cursor: 'pointer',
   },
 };
 
