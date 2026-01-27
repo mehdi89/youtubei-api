@@ -1,6 +1,6 @@
 import logger from "@/utils/logger";
 import cache, { TTL } from '@/utils/cache';
-import { getInnertube } from "@/utils/innertube";
+import { getInnertube, resolveChannelId } from "@/utils/innertube";
 
 /**
  * Channel Live Videos API
@@ -37,11 +37,20 @@ export default async function handler(req, res) {
     return res.status(200).json(cached);
   }
 
-  logger.fetch(`Fetching live videos`, `Channel: ${id}`);
-
   try {
     const yt = await getInnertube();
-    const channel = await yt.getChannel(id);
+
+    // Resolve handle/URL to channel ID if needed
+    let channelId = id;
+    if (!id.startsWith('UC') || id.length !== 24) {
+      logger.fetch(`Resolving channel identifier`, `Input: ${id}`);
+      channelId = await resolveChannelId(yt, id);
+      logger.info(`Resolved to channel ID: ${channelId}`);
+    }
+
+    logger.fetch(`Fetching live videos`, `Channel: ${channelId}`);
+
+    const channel = await yt.getChannel(channelId);
 
     if (!channel) {
       logger.error("Channel not found", `ID: ${id}`);

@@ -266,6 +266,7 @@ export default function TestUI({ initialApiKey }) {
                     <option value="videos">Videos</option>
                     <option value="shorts">Shorts</option>
                     <option value="live">Live</option>
+                    <option value="playlists">Playlists</option>
                     <option value="all">All</option>
                   </select>
                   <button onClick={handleChannelVideos} style={styles.buttonSecondary} disabled={loading}>
@@ -341,6 +342,7 @@ export default function TestUI({ initialApiKey }) {
                   result={result}
                   type={activeTab}
                   searchType={searchType}
+                  channelContentType={channelContentType}
                   onVideoClick={(id) => {
                     setVideoId(id);
                     setActiveTab('Video Details');
@@ -350,6 +352,12 @@ export default function TestUI({ initialApiKey }) {
                   onChannelClick={(id) => {
                     setChannelId(id);
                     setActiveTab('Channel Details');
+                    setResult(null);
+                    setError(null);
+                  }}
+                  onPlaylistClick={(id) => {
+                    setPlaylistId(id);
+                    setActiveTab('Playlist');
                     setResult(null);
                     setError(null);
                   }}
@@ -364,7 +372,7 @@ export default function TestUI({ initialApiKey }) {
 }
 
 // Results Display Component
-function ResultsDisplay({ result, type, searchType, onVideoClick, onChannelClick }) {
+function ResultsDisplay({ result, type, searchType, channelContentType, onVideoClick, onChannelClick, onPlaylistClick }) {
   if (!result) return null;
 
   // Health check
@@ -516,16 +524,28 @@ function ResultsDisplay({ result, type, searchType, onVideoClick, onChannelClick
 
   // Channel details - handle both array and {data: ...} format
   if (type === 'Channel Details') {
-    // Check if it's channel videos (array at top level or in data)
-    const videos = Array.isArray(result) ? result : (Array.isArray(result.data) ? result.data : null);
+    // Check if it's channel videos or playlists (array at top level or in data)
+    const items = Array.isArray(result) ? result : (Array.isArray(result.data) ? result.data : null);
 
-    if (videos) {
-      if (videos.length === 0) {
-        return <div style={styles.noResults}>No videos found</div>;
+    if (items) {
+      if (items.length === 0) {
+        return <div style={styles.noResults}>No {channelContentType || 'content'} found</div>;
       }
+
+      // Check if items are playlists
+      if (items[0]?.isPlaylist) {
+        return (
+          <div style={styles.grid}>
+            {items.map((playlist, index) => (
+              <ChannelPlaylistCard key={playlist.id || index} playlist={playlist} onPlaylistClick={onPlaylistClick} />
+            ))}
+          </div>
+        );
+      }
+
       return (
         <div style={styles.grid}>
-          {videos.map((video, index) => (
+          {items.map((video, index) => (
             <VideoCard key={video.id || index} video={video} onVideoClick={onVideoClick} />
           ))}
         </div>
@@ -711,6 +731,41 @@ function PlaylistVideoItem({ video, index, onVideoClick, onChannelClick }) {
         >
           {channelName}
         </p>
+      </div>
+    </div>
+  );
+}
+
+// Channel Playlist Card (for channel playlists tab)
+function ChannelPlaylistCard({ playlist, onPlaylistClick }) {
+  const handleClick = () => {
+    if (onPlaylistClick && playlist.id) {
+      onPlaylistClick(playlist.id);
+    }
+  };
+
+  return (
+    <div style={styles.playlistCard} onClick={handleClick}>
+      <div style={styles.playlistCardThumb}>
+        <img
+          src={playlist.thumbnail || 'https://via.placeholder.com/320x180?text=Playlist'}
+          alt={playlist.title}
+          style={styles.playlistCardImg}
+          onError={(e) => {
+            e.target.src = 'https://via.placeholder.com/320x180?text=Playlist';
+          }}
+        />
+        <div style={styles.playlistCardOverlay}>
+          <span style={styles.playlistCardCount}>{playlist.videoCount || '?'}</span>
+          <svg viewBox="0 0 24 24" width="24" height="24" style={{marginTop: 4}}>
+            <path fill="#fff" d="M15,6H3v2h12V6z M15,10H3v2h12V10z M3,16h8v-2H3V16z M17,6v8.18C16.69,14.07,16.35,14,16,14c-1.66,0-3,1.34-3,3s1.34,3,3,3s3-1.34,3-3V8h3V6H17z"/>
+          </svg>
+        </div>
+      </div>
+      <div style={styles.playlistCardInfo}>
+        <h4 style={styles.playlistCardTitle}>{playlist.title}</h4>
+        {playlist.channelName && <p style={styles.playlistCardAuthor}>{playlist.channelName}</p>}
+        <p style={styles.playlistCardMeta}>View full playlist</p>
       </div>
     </div>
   );

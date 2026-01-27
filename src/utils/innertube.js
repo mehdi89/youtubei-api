@@ -67,6 +67,58 @@ export const HIGH_CONFIDENCE_LANGUAGES = [
 ];
 
 /**
+ * Resolve a channel identifier (handle, URL, or ID) to a proper channel ID
+ * @param {Innertube} yt - Innertube instance
+ * @param {string} identifier - Channel handle (@username), custom URL, or channel ID
+ * @returns {Promise<string>} - Resolved channel ID (UC...)
+ */
+export async function resolveChannelId(yt, identifier) {
+  if (!identifier) {
+    throw new Error('Channel identifier is required');
+  }
+
+  // Already a channel ID (starts with UC and is 24 chars)
+  if (identifier.startsWith('UC') && identifier.length === 24) {
+    return identifier;
+  }
+
+  // Build URL to resolve
+  let urlToResolve;
+  if (identifier.startsWith('@')) {
+    // Handle format: @username
+    urlToResolve = `https://www.youtube.com/${identifier}`;
+  } else if (identifier.startsWith('http')) {
+    // Already a URL
+    urlToResolve = identifier;
+  } else {
+    // Assume it's a custom URL or username
+    urlToResolve = `https://www.youtube.com/@${identifier}`;
+  }
+
+  try {
+    const resolved = await yt.resolveURL(urlToResolve);
+
+    if (resolved?.payload?.browseId) {
+      return resolved.payload.browseId;
+    }
+
+    // Fallback: try without @ prefix
+    if (identifier.startsWith('@')) {
+      const altUrl = `https://www.youtube.com/c/${identifier.slice(1)}`;
+      const altResolved = await yt.resolveURL(altUrl);
+      if (altResolved?.payload?.browseId) {
+        return altResolved.payload.browseId;
+      }
+    }
+
+    throw new Error(`Could not resolve channel: ${identifier}`);
+  } catch (error) {
+    logger.warn(`Failed to resolve channel identifier: ${identifier}`, error.message);
+    throw error;
+  }
+}
+
+/**
  * Select the best language from available options
  * @param {string[]} availableLangs - Array of available language codes
  * @returns {string|null} - Selected language code or null

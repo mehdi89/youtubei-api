@@ -1,6 +1,6 @@
 import logger from "@/utils/logger";
 import cache, { TTL } from '@/utils/cache';
-import { getInnertube } from "@/utils/innertube";
+import { getInnertube, resolveChannelId } from "@/utils/innertube";
 
 /**
  * Channel Videos API
@@ -36,7 +36,7 @@ export default async function handler(req, res) {
   }
 
   // Validate contentType
-  const validContentTypes = ['all', 'videos', 'shorts', 'live'];
+  const validContentTypes = ['all', 'videos', 'shorts', 'live', 'playlists'];
   if (!validContentTypes.includes(contentType)) {
     logger.error("Invalid contentType", `Got: ${contentType}`);
     return res.status(400).json({
@@ -52,11 +52,20 @@ export default async function handler(req, res) {
     return res.status(200).json(cached);
   }
 
-  logger.fetch(`Fetching channel ${contentType}`, `Channel: ${id} | Page: ${page}`);
-
   try {
     const yt = await getInnertube();
-    const channel = await yt.getChannel(id);
+
+    // Resolve handle/URL to channel ID if needed
+    let channelId = id;
+    if (!id.startsWith('UC') || id.length !== 24) {
+      logger.fetch(`Resolving channel identifier`, `Input: ${id}`);
+      channelId = await resolveChannelId(yt, id);
+      logger.info(`Resolved to channel ID: ${channelId}`);
+    }
+
+    logger.fetch(`Fetching channel ${contentType}`, `Channel: ${channelId} | Page: ${page}`);
+
+    const channel = await yt.getChannel(channelId);
 
     if (!channel) {
       logger.error("Channel not found", `ID: ${id}`);
@@ -71,17 +80,20 @@ export default async function handler(req, res) {
         fetchContentTab(channel, 'videos', page),
         fetchContentTab(channel, 'shorts', page),
       ]);
-      
+
       items = [
         ...videosResult.map(v => ({ ...v, isShort: false })),
         ...shortsResult.map(v => ({ ...v, isShort: true })),
       ];
-      
+
       // Sort by upload date (most recent first) if available
       items.sort((a, b) => {
         if (!a.uploadDate || !b.uploadDate) return 0;
         return new Date(b.uploadDate) - new Date(a.uploadDate);
       });
+    } else if (contentType === 'playlists') {
+      // Fetch channel playlists
+      items = await fetchPlaylistsTab(channel, page);
     } else {
       // Specific content type
       const isShort = contentType === 'shorts';
@@ -242,6 +254,64 @@ function parseDuration(duration) {
   if (duration.seconds) return duration.seconds;
   
   return null;
+}
+
+/**
+ * Fetch playlists from a channel
+ */
+async function fetchPlaylistsTab(channel, page) {
+  try {
+    const tab = await channel.getPlaylists();
+
+    if (!tab || !tab.playlists) {
+      return [];
+    }
+
+    // Handle pagination
+    let playlists = tab.playlists;
+
+    if (page > 1) {
+      let currentTab = tab;
+      for (let i = 2; i <= page; i++) {
+        if (!currentTab.has_continuation) {
+          break;
+        }
+        try {
+          logger.fetch(`Loading playlists page ${i}`, `Channel: ${channel.metadata?.external_id}`);
+          currentTab = await currentTab.getContinuation();
+          playlists = currentTab.playlists || [];
+        } catch (error) {
+          logger.warn(`Failed to load playlists page ${i}`, error.message);
+          break;
+        }
+      }
+    }
+
+    // Map to response format
+    return playlists.map(item => formatPlaylistItem(item, channel));
+  } catch (error) {
+    logger.warn(`Failed to fetch playlists tab`, error.message);
+    return [];
+  }
+}
+
+/**
+ * Format a playlist item for the API response
+ */
+function formatPlaylistItem(item, channel) {
+  const playlistId = item.id || item.playlist_id;
+  const thumbnails = item.thumbnails || [];
+  const thumbnail = thumbnails[0]?.url || (playlistId ? `https://i.ytimg.com/vi/${playlistId}/hqdefault.jpg` : null);
+
+  return {
+    id: playlistId,
+    title: item.title?.text || item.title || null,
+    videoCount: item.video_count?.text || item.video_count || null,
+    thumbnail: thumbnail,
+    channelName: channel.metadata?.title || item.author?.name || null,
+    channelID: channel.metadata?.external_id || item.author?.id || null,
+    isPlaylist: true,
+  };
 }
 
 /**
