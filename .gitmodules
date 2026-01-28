@@ -1,3 +1,0 @@
-[submodule "src/utils/youtube-transcript"]
-	path = src/utils/youtube-transcript
-	url = https://github.com/rspraymond/youtube-transcript

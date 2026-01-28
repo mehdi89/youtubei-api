@@ -2,21 +2,23 @@ import { createMocks } from 'node-mocks-http'
 
 // Create mock functions at module level
 const mockGetInfo = jest.fn()
-const mockFetchTranscript = jest.fn()
-const mockListTranscripts = jest.fn()
+const mockHttpFetch = jest.fn()
 
-// Mock youtube-transcript
-jest.mock('@/utils/youtube-transcript/dist/youtube-transcript.common.js', () => ({
-  YoutubeTranscript: {
-    fetchTranscript: mockFetchTranscript,
-    listTranscripts: mockListTranscripts,
-  },
+// Mock the proxy utility
+jest.mock('@/utils/proxy', () => ({
+  withProxy: jest.fn((fn) => fn()),
+  isProxyConfigured: jest.fn(() => false),
 }))
 
 // Mock the shared innertube utility
 jest.mock('@/utils/innertube', () => ({
   getInnertube: jest.fn().mockImplementation(() => Promise.resolve({
     getInfo: mockGetInfo,
+    session: {
+      http: {
+        fetch: mockHttpFetch,
+      },
+    },
   })),
   resetInnertube: jest.fn(),
   decodeEntities: jest.fn((str) => str || ''),
@@ -32,12 +34,11 @@ describe('Video Details API', () => {
     // Reset all mocks
     jest.clearAllMocks()
     mockGetInfo.mockReset()
-    mockFetchTranscript.mockReset()
-    mockListTranscripts.mockReset()
-    
+    mockHttpFetch.mockReset()
+
     // Reset the module to clear the singleton instance
     jest.resetModules()
-    
+
     // Re-import the handler fresh
     videoDetailsHandler = require('../video-details').default
   })
@@ -108,16 +109,24 @@ describe('Video Details API', () => {
         },
       },
       player_overlays: {},
-      captions: {},
+      captions: {
+        caption_tracks: [
+          { language_code: 'en', base_url: 'https://youtube.com/captions/en' },
+        ],
+      },
     }
 
-    mockGetInfo.mockResolvedValueOnce(mockVideoInfo)
-    
-    // Mock transcript
-    mockFetchTranscript.mockResolvedValueOnce([
-      { text: 'Hello', offset: 0 },
-      { text: 'World', offset: 1 },
-    ])
+    mockGetInfo.mockResolvedValue(mockVideoInfo)
+
+    // Mock caption XML response
+    const captionXml = `<?xml version="1.0" encoding="utf-8"?>
+      <transcript>
+        <text start="0" dur="1">Hello</text>
+        <text start="1" dur="1">World</text>
+      </transcript>`
+    mockHttpFetch.mockResolvedValue({
+      text: () => Promise.resolve(captionXml),
+    })
 
     const { req, res } = createMocks({
       method: 'POST',
@@ -176,10 +185,10 @@ describe('Video Details API', () => {
       primary_info: {},
       secondary_info: {},
       player_overlays: {},
+      captions: null,  // No captions available
     }
 
-    mockGetInfo.mockResolvedValueOnce(mockVideoInfo)
-    mockFetchTranscript.mockRejectedValueOnce(new Error('Transcript is disabled'))
+    mockGetInfo.mockResolvedValue(mockVideoInfo)
 
     const { req, res } = createMocks({
       method: 'POST',

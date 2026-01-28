@@ -1,22 +1,21 @@
-import { YoutubeTranscript } from '@/utils/youtube-transcript/dist/youtube-transcript.common.js';
 import logger from "@/utils/logger";
 import cache, { TTL } from '@/utils/cache';
-import { withProxy, isProxyConfigured } from '@/utils/proxy';
 import {
   getInnertube,
   decodeEntities,
   selectBestLanguage,
   HIGH_CONFIDENCE_LANGUAGES
 } from '@/utils/innertube';
+import { withProxy, isProxyConfigured } from '@/utils/proxy';
 
 /**
  * Fetch transcript using youtubei.js caption URL directly
  */
-async function fetchTranscriptWithInnerTube(videoId, langCode = null) {
+async function fetchTranscriptWithInnerTube(videoId, langCode = null, existingInfo = null) {
   try {
-    logger.info(`Trying youtubei.js fallback`, `Video: ${videoId}`);
+    logger.fetch(`Fetching transcript`, `Video: ${videoId}${langCode ? ` | Language: ${langCode}` : ''}`);
     const yt = await getInnertube();
-    const info = await yt.getInfo(videoId);
+    const info = existingInfo || await yt.getInfo(videoId);
 
     if (!info || !info.captions) {
       logger.warn(`youtubei.js: No captions object`, `Video: ${videoId}`);
@@ -49,57 +48,47 @@ async function fetchTranscriptWithInnerTube(videoId, langCode = null) {
       return { success: false, error: 'No caption URL' };
     }
 
-    // Fetch with retry logic for rate limiting
+    // Fetch caption XML
     let xml;
-    const maxRetries = 3;
-    const baseDelay = 1000;
+    try {
+      // Try session fetch first
+      const response = await yt.session.http.fetch(captionUrl);
+      xml = await response.text();
+    } catch (sessionError) {
+      // Fallback to direct fetch with headers (using proxy if configured)
+      logger.warn(`youtubei.js: Session fetch failed, trying direct`, `Video: ${videoId}`);
 
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      const useProxy = isProxyConfigured();
+      if (useProxy) {
+        logger.info('Using proxy for caption fetch', `Video: ${videoId}`);
+      }
+
+      const doFetch = async () => {
+        const response = await fetch(captionUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': `https://www.youtube.com/watch?v=${videoId}`,
+            'Origin': 'https://www.youtube.com'
+          }
+        });
+        if (!response.ok) {
+          throw new Error(`Caption fetch failed: ${response.status}`);
+        }
+        return response.text();
+      };
+
       try {
-        // Try session fetch first
-        try {
-          const response = await yt.session.http.fetch(captionUrl);
-          xml = await response.text();
-          break;
-        } catch (sessionError) {
-          // Fallback to direct fetch with headers
-          if (attempt === 0) {
-            logger.warn(`youtubei.js: Session fetch failed, trying direct`, `Video: ${videoId}`);
-          }
-          const response = await fetch(captionUrl, {
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-              'Accept-Language': 'en-US,en;q=0.9',
-              'Referer': `https://www.youtube.com/watch?v=${videoId}`,
-              'Origin': 'https://www.youtube.com'
-            }
-          });
-
-          if (response.status === 429) {
-            // Rate limited - wait and retry
-            const delay = baseDelay * Math.pow(2, attempt);
-            logger.warn(`youtubei.js: Rate limited, retrying in ${delay}ms`, `Video: ${videoId} | Attempt: ${attempt + 1}`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-            continue;
-          }
-
-          if (!response.ok) {
-            logger.warn(`youtubei.js: Caption fetch failed`, `Video: ${videoId} | Status: ${response.status}`);
-            return { success: false, error: `Caption fetch failed: ${response.status}` };
-          }
-          xml = await response.text();
-          break;
-        }
-      } catch (fetchError) {
-        if (attempt === maxRetries - 1) {
-          throw fetchError;
-        }
+        xml = await withProxy(doFetch);
+      } catch (proxyError) {
+        logger.warn(`youtubei.js: Caption fetch failed`, `Video: ${videoId} | Error: ${proxyError.message}`);
+        return { success: false, error: proxyError.message };
       }
     }
 
     if (!xml) {
-      logger.warn(`youtubei.js: Failed after ${maxRetries} retries`, `Video: ${videoId}`);
-      return { success: false, error: 'Caption fetch failed after retries' };
+      logger.warn(`youtubei.js: No XML received`, `Video: ${videoId}`);
+      return { success: false, error: 'Caption fetch failed' };
     }
 
     // Parse XML to extract text segments
@@ -140,43 +129,33 @@ async function fetchTranscriptWithInnerTube(videoId, langCode = null) {
   }
 }
 
-async function getTranscriptLanguages(videoId) {
+async function getTranscriptLanguages(videoId, info = null) {
   try {
     logger.fetch(`Getting available languages`, `Video: ${videoId}`);
-    
-    // Try using YoutubeTranscript's listTranscripts first
-    try {
-      const transcriptList = await YoutubeTranscript.listTranscripts(videoId);
-      if (transcriptList && transcriptList.length > 0) {
-        const langCodes = transcriptList.map(t => t.languageCode || t.lang).filter(Boolean);
-        logger.success(`Found ${langCodes.length} languages via YoutubeTranscript`, `Video: ${videoId}`);
-        return langCodes;
-      }
-    } catch (e) {
-      // listTranscripts might not be available, try youtubei.js
+
+    // Use provided info or fetch it
+    let videoInfo = info;
+    if (!videoInfo) {
+      const yt = await getInnertube();
+      videoInfo = await yt.getInfo(videoId);
     }
 
-    // Fallback to youtubei.js
-    const yt = await getInnertube();
-    const info = await yt.getInfo(videoId);
-    
-    if (!info || !info.captions) {
+    if (!videoInfo || !videoInfo.captions) {
       logger.info(`No captions available`, `Video: ${videoId}`);
-      return [];
+      return { langCodes: [], info: videoInfo };
     }
 
-    // Try to get caption tracks from youtubei.js
-    const captionTracks = info.captions?.caption_tracks || [];
+    const captionTracks = videoInfo.captions?.caption_tracks || [];
     if (captionTracks.length > 0) {
       const langCodes = captionTracks.map(track => track.language_code).filter(Boolean);
-      logger.success(`Found ${langCodes.length} languages via youtubei.js`, `Video: ${videoId}`);
-      return langCodes;
+      logger.success(`Found ${langCodes.length} languages`, `Video: ${videoId}`);
+      return { langCodes, info: videoInfo };
     }
 
-    return [];
+    return { langCodes: [], info: videoInfo };
   } catch (error) {
     logger.warn(`Could not get languages, will try default`, `Video: ${videoId} | Error: ${error.message}`);
-    return [];
+    return { langCodes: [], info: null };
   }
 }
 
@@ -211,53 +190,29 @@ export default async function handler(req, res) {
   let availableLangCodes = [];
 
   try {
-    // Get available languages first (this is optional, transcript will still work without it)
-    availableLangCodes = await getTranscriptLanguages(id);
-    
+    // Get available languages and video info in one call
+    const { langCodes, info } = await getTranscriptLanguages(id);
+    availableLangCodes = langCodes;
+
     if (availableLangCodes.length > 0) {
       logger.info(`Available languages`, `Codes: ${availableLangCodes.join(', ')}`);
-      
+
       // Use shared language selection utility
       selectedLang = selectBestLanguage(availableLangCodes);
-      
+
       if (selectedLang) {
         logger.info(`Selected language`, `Language: ${selectedLang}`);
       }
     }
 
-    const options = selectedLang ? { lang: selectedLang } : {};
-    const useProxy = isProxyConfigured();
-    logger.fetch(`Fetching transcript`, `Video: ${id}${selectedLang ? ` | Language: ${selectedLang}` : ''}${useProxy ? ' | Proxy: enabled' : ''}`);
-
-    let transcript = null;
-    let fetchMethod = '';
-
-    // Try YoutubeTranscript first (with proxy if configured)
-    try {
-      if (useProxy) {
-        transcript = await withProxy(async () => {
-          return YoutubeTranscript.fetchTranscript(id, options);
-        });
-        fetchMethod = 'YoutubeTranscript+Proxy';
-      } else {
-        transcript = await YoutubeTranscript.fetchTranscript(id, options);
-        fetchMethod = 'YoutubeTranscript';
-      }
-    } catch (ytError) {
-      logger.warn(`YoutubeTranscript failed, trying youtubei.js`, `Video: ${id}`);
-
-      // Fallback to youtubei.js (without proxy - uses internal session)
-      const innertubeResult = await fetchTranscriptWithInnerTube(id, selectedLang);
-      if (innertubeResult.success) {
-        transcript = innertubeResult.entries;
-        fetchMethod = 'youtubei.js';
-      } else {
-        // Both methods failed
-        throw new Error(ytError.message || 'No transcripts available');
-      }
+    // Use youtubei.js directly for transcript fetching
+    const result = await fetchTranscriptWithInnerTube(id, selectedLang, info);
+    if (!result.success) {
+      throw new Error(result.error || 'No transcripts available');
     }
 
-    logger.info(`Raw transcript data`, `Length: ${transcript.length} entries | Method: ${fetchMethod}`);
+    const transcript = result.entries;
+    logger.info(`Raw transcript data`, `Length: ${transcript.length} entries`);
 
     let data = '';
     if (type === 'timestamped') {
@@ -272,7 +227,7 @@ export default async function handler(req, res) {
     }
     data = decodeEntities(data);
 
-    logger.success(`Transcript fetched successfully`, `Video: ${id} | Length: ${data.length} chars | Method: ${fetchMethod}`);
+    logger.success(`Transcript fetched successfully`, `Video: ${id} | Length: ${data.length} chars`);
 
     // Cache the response
     const response = { data };

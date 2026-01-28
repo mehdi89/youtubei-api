@@ -4,16 +4,16 @@ A high-performance YouTube data extraction API built with **Next.js** and **yout
 
 ## Features
 
-- 🚀 **Fast**: Built with Next.js for high performance
-- 🎯 **Complete**: All major YouTube data extraction endpoints
-- 📝 **Transcripts**: Full support for video transcripts with timestamps
-- 🔍 **Search**: Search videos, channels, and playlists
-- 📺 **Channels**: Get channel details, videos, and live streams
-- 📋 **Playlists**: Extract all videos from any playlist
-- 🌐 **Proxy Support**: Residential proxy integration to bypass rate limiting
-- 💾 **Caching**: In-memory caching with configurable TTL
-- 🐳 **Docker Ready**: Fully containerized deployment
-- 🔐 **Secure**: API key authentication
+- **Fast**: Built with Next.js for high performance
+- **Complete**: All major YouTube data extraction endpoints
+- **Transcripts**: Full support for video transcripts with timestamps
+- **Search**: Search videos, channels, and playlists
+- **Channels**: Get channel details, videos, and live streams
+- **Playlists**: Extract all videos from any playlist
+- **Proxy Support**: Residential proxy integration to bypass rate limiting
+- **Caching**: In-memory caching with configurable TTL
+- **Docker Ready**: Fully containerized deployment
+- **Secure**: API key authentication
 
 ## Tech Stack
 
@@ -163,26 +163,109 @@ api-key: YOUR_API_KEY
 | `EVOMI_API_KEY` | No | Evomi residential proxy API key for bypassing rate limiting |
 | `NODE_ENV` | No | Set to `production` in Docker |
 
-## Proxy Configuration
+## Technical Implementation
 
-The API supports Evomi residential proxies to bypass YouTube rate limiting for transcript fetching.
+### Transcript Fetching
 
-### Setup
+The transcript fetching uses **youtubei.js** directly for optimal performance:
 
-1. Get API key from https://dashboard.evomi.com
-2. Add to `.env`:
-```bash
-EVOMI_API_KEY=your_api_key_here
 ```
+┌─────────────────────────────────────────────────────────────┐
+│                    Transcript Flow                          │
+├─────────────────────────────────────────────────────────────┤
+│  1. Get video info via youtubei.js                          │
+│     └─> yt.getInfo(videoId)                                 │
+│                                                             │
+│  2. Extract caption tracks from info.captions               │
+│     └─> Select best language (English preferred)            │
+│                                                             │
+│  3. Fetch caption XML                                       │
+│     ├─> Primary: yt.session.http.fetch(captionUrl)          │
+│     └─> Fallback: fetch() with Evomi proxy                  │
+│                                                             │
+│  4. Parse XML and extract text segments                     │
+│     └─> Returns plain text or timestamped entries           │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Language Selection Priority:**
+1. English (`en` or `en-*`)
+2. High-confidence languages: `es`, `fr`, `de`, `it`, `pt`, `nl`, `sv`, `da`, `fi`, `no`
+3. First available track
+
+### Proxy Configuration
+
+The API uses Evomi residential proxies as a **fallback** when the primary youtubei.js session fetch fails:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Proxy Flow                              │
+├─────────────────────────────────────────────────────────────┤
+│  1. Try youtubei.js session fetch (no proxy)                │
+│     └─> Uses internal authentication                        │
+│                                                             │
+│  2. If fails, use Evomi proxy                               │
+│     ├─> Generate credentials via Evomi API                  │
+│     ├─> Create undici ProxyAgent                            │
+│     ├─> Set as global fetch dispatcher                      │
+│     ├─> Make request through US residential IP              │
+│     └─> Restore original dispatcher                         │
+│                                                             │
+│  3. If proxy unavailable, direct connection                 │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Setup:**
+1. Get API key from https://dashboard.evomi.com
+2. Add `EVOMI_API_KEY=your_key` to `.env`
 3. Restart the container
 
-### How it works
-
+**Details:**
 - **Provider**: Evomi Residential Proxies Core
 - **Cost**: $0.49/GB
-- **Automatic**: Transcript requests automatically route through US residential IPs
-- **Fallback**: If proxy fails, falls back to direct connection
-- **Caching**: Proxy credentials cached for 1 hour
+- **Region**: US residential IPs
+- **Credential caching**: 1 hour
+
+### Caching
+
+In-memory cache with TTL to avoid redundant YouTube requests:
+
+| Data Type | TTL | Reason |
+|-----------|-----|--------|
+| Transcripts | 24 hours | Rarely change |
+| Video details | 1 hour | Metadata may update |
+| Channel details | 1 hour | Subscriber count changes |
+| Channel videos | 15 minutes | New uploads |
+| Playlists | 15 minutes | Playlist edits |
+| Search results | 5 minutes | Dynamic results |
+| Live content | 2 minutes | Frequently changing |
+
+**Cache Implementation:**
+- Singleton `Map`-based store
+- Automatic cleanup every 5 minutes
+- Statistics tracking (hits, misses, hit rate)
+
+> **Note**: Cache is in-memory only, lost on restart. For production persistence, consider Redis.
+
+## Project Structure
+
+```
+src/
+├── pages/api/              # API endpoints
+│   ├── hello.js            # Health check
+│   ├── video-details.js    # Video metadata + transcript
+│   ├── transcript.js       # Standalone transcript endpoint
+│   ├── search.js           # Search videos/channels/playlists
+│   ├── channel-details.js  # Channel information
+│   ├── channel-videos.js   # Channel video listings
+│   ├── channel-live-videos.js # Live streams
+│   └── playlist.js         # Playlist videos
+└── utils/
+    ├── innertube.js        # youtubei.js singleton + helpers
+    ├── logger.js           # Colored console logging
+    ├── cache.js            # In-memory TTL cache
+    └── proxy.js            # Evomi proxy (undici ProxyAgent)
+```
 
 ## Docker Deployment
 
@@ -218,6 +301,9 @@ npm install
 # Run development server
 npm run dev
 
+# Run tests
+npm test
+
 # Build for production
 npm run build
 
@@ -225,65 +311,18 @@ npm run build
 npm start
 ```
 
-## Project Structure
-
-```
-src/
-├── pages/api/              # API endpoints
-│   ├── hello.js
-│   ├── video-details.js
-│   ├── transcript.js
-│   ├── search.js
-│   ├── channel-details.js
-│   ├── channel-videos.js
-│   ├── channel-live-videos.js
-│   └── playlist.js
-└── utils/
-    ├── innertube.js        # youtubei.js singleton
-    ├── logger.js           # Logging utility
-    ├── cache.js            # In-memory caching with TTL
-    ├── proxy.js            # Evomi proxy configuration
-    └── youtube-transcript/ # YouTube transcript library
-```
-
-## Caching
-
-The API implements in-memory caching with configurable TTL:
-
-| Data Type | TTL |
-|-----------|-----|
-| Video details | 1 hour |
-| Transcripts | 24 hours |
-| Channel info | 1 hour |
-| Search results | 30 minutes |
-
 ## Error Handling
 
 Consistent error responses:
 
-- **401**: Invalid API key
-- **403**: Video unavailable or private
-- **404**: Resource not found
-- **405**: Method not allowed
-- **500**: Internal server error
-- **503**: Network error / YouTube unavailable
-
-## Monitoring
-
-View real-time logs:
-```bash
-docker-compose logs -f
-```
-
-Check container status:
-```bash
-docker-compose ps
-```
-
-Health check:
-```bash
-curl http://localhost:3000/api/hello
-```
+| Code | Meaning |
+|------|---------|
+| 401 | Invalid API key |
+| 403 | Video unavailable or private |
+| 404 | Resource not found |
+| 405 | Method not allowed |
+| 500 | Internal server error |
+| 503 | Network error / YouTube unavailable |
 
 ## Troubleshooting
 

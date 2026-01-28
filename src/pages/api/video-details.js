@@ -1,5 +1,4 @@
 import logger from "@/utils/logger";
-import { YoutubeTranscript } from '@/utils/youtube-transcript/dist/youtube-transcript.common.js';
 import {
   getInnertube,
   decodeEntities,
@@ -214,23 +213,37 @@ async function fetchTranscriptWithInnerTube(videoId) {
     }
 
     // Use the innertube's http client to make the request (includes proper auth)
+    // If that fails, fallback to direct fetch with proxy
     let xml;
     try {
       const response = await yt.session.http.fetch(captionUrl);
       xml = await response.text();
     } catch (fetchError) {
-      // Fallback to direct fetch with headers
-      const response = await fetch(captionUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Referer': `https://www.youtube.com/watch?v=${videoId}`
-        }
-      });
-      if (!response.ok) {
-        return { success: false, error: `Caption fetch failed: ${response.status}` };
+      // Fallback to direct fetch with headers (using proxy if configured)
+      const useProxy = isProxyConfigured();
+      if (useProxy) {
+        logger.info('Using proxy for caption fetch', `Video: ${videoId}`);
       }
-      xml = await response.text();
+
+      const doFetch = async () => {
+        const response = await fetch(captionUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': `https://www.youtube.com/watch?v=${videoId}`
+          }
+        });
+        if (!response.ok) {
+          throw new Error(`Caption fetch failed: ${response.status}`);
+        }
+        return response.text();
+      };
+
+      try {
+        xml = await withProxy(doFetch);
+      } catch (proxyError) {
+        return { success: false, error: proxyError.message };
+      }
     }
 
     // Parse XML to extract text
@@ -263,31 +276,100 @@ async function fetchTranscriptWithInnerTube(videoId) {
   }
 }
 
-async function tryGetTranscriptWithYoutubeTranscript(videoId) {
-  // Try YoutubeTranscript first (with proxy if configured)
-  const useProxy = isProxyConfigured();
+/**
+ * Fetch timestamped transcript using youtubei.js with existing info object
+ */
+async function fetchTranscriptWithInnerTubeTimestamped(info, videoId, langCode = null) {
   try {
-    let transcript;
-    if (useProxy) {
-      transcript = await withProxy(async () => {
-        return YoutubeTranscript.fetchTranscript(videoId);
-      });
+    if (!info || !info.captions) {
+      return { success: false, error: 'No captions available' };
+    }
+
+    const captionTracks = info.captions.caption_tracks || [];
+    if (captionTracks.length === 0) {
+      return { success: false, error: 'No caption tracks' };
+    }
+
+    // Find the best caption track
+    let track = captionTracks[0];
+    if (langCode) {
+      const langTrack = captionTracks.find(t => t.language_code === langCode);
+      if (langTrack) track = langTrack;
     } else {
-      transcript = await YoutubeTranscript.fetchTranscript(videoId);
+      // Prefer English track
+      const enTrack = captionTracks.find(t => t.language_code === 'en' || t.language_code?.startsWith('en'));
+      if (enTrack) track = enTrack;
     }
-    let text = '';
-    transcript.forEach((entry) => {
-      text += ' ' + entry.text;
-    });
-    return { success: true, content: decodeEntities(text.trim()), method: useProxy ? 'YoutubeTranscript+Proxy' : 'YoutubeTranscript' };
+
+    const captionUrl = track.base_url;
+    if (!captionUrl) {
+      return { success: false, error: 'No caption URL' };
+    }
+
+    // Use the innertube's http client to make the request
+    const yt = await getInnertube();
+    let xml;
+    try {
+      const response = await yt.session.http.fetch(captionUrl);
+      xml = await response.text();
+    } catch (fetchError) {
+      // Fallback to direct fetch with headers (using proxy if configured)
+      const useProxy = isProxyConfigured();
+      if (useProxy) {
+        logger.info('Using proxy for caption fetch', `Video: ${videoId}`);
+      }
+
+      const doFetch = async () => {
+        const response = await fetch(captionUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': `https://www.youtube.com/watch?v=${videoId}`
+          }
+        });
+        if (!response.ok) {
+          throw new Error(`Caption fetch failed: ${response.status}`);
+        }
+        return response.text();
+      };
+
+      try {
+        xml = await withProxy(doFetch);
+      } catch (proxyError) {
+        return { success: false, error: proxyError.message };
+      }
+    }
+
+    // Parse XML to extract text with timestamps
+    const textRegex = /<text[^>]*start="([^"]*)"[^>]*>([^<]*)<\/text>/g;
+    const entries = [];
+    let match;
+
+    while ((match = textRegex.exec(xml)) !== null) {
+      const text = match[2]
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/\n/g, ' ')
+        .trim();
+
+      if (text) {
+        entries.push({
+          text,
+          offset: parseFloat(match[1]) || 0
+        });
+      }
+    }
+
+    if (entries.length === 0) {
+      return { success: false, error: 'No transcript text found' };
+    }
+
+    return { success: true, entries };
   } catch (error) {
-    // Fallback to youtubei.js
-    logger.warn(`YoutubeTranscript failed for ${videoId}, trying youtubei.js`);
-    const innertubeResult = await fetchTranscriptWithInnerTube(videoId);
-    if (innertubeResult.success) {
-      return innertubeResult;
-    }
-    return { success: false, error };
+    return { success: false, error: error.message };
   }
 }
 
@@ -299,15 +381,15 @@ async function fetchTranscript(video, videoId) {
 
   try {
     logger.fetch(`Transcript for ${videoId}`);
-    
-    // Use YoutubeTranscript library (more reliable)
-    const ytTranscriptResult = await tryGetTranscriptWithYoutubeTranscript(videoId);
-    if (ytTranscriptResult.success) {
-      logger.success(`Got transcript for ${videoId} using YoutubeTranscript`);
-      return { available: true, content: ytTranscriptResult.content };
+
+    // Use youtubei.js directly for transcript fetching
+    const result = await fetchTranscriptWithInnerTube(videoId);
+    if (result.success) {
+      logger.success(`Got transcript for ${videoId}`);
+      return { available: true, content: result.content };
     }
 
-    // If YoutubeTranscript fails and no captions available
+    // If youtubei.js fails and no captions available
     if (!video._hasCaption) {
       logger.info(`No transcript - No captions`, `Video: ${videoId}`);
       return { available: false, reason: 'no_captions' };
@@ -316,8 +398,7 @@ async function fetchTranscript(video, videoId) {
     logger.info(`No transcript available`, `Video: ${videoId}`);
     return { available: false, reason: 'fetch_failed' };
   } catch (error) {
-    if (error.message?.includes('Transcript is disabled') || 
-        error.name === 'YoutubeTranscriptDisabledError') {
+    if (error.message?.includes('Transcript is disabled')) {
       logger.info(`No transcript - Disabled`, `Video: ${videoId}`);
       return { available: false, reason: 'disabled' };
     }
@@ -328,20 +409,19 @@ async function fetchTranscript(video, videoId) {
 }
 
 async function fetchTimestampedTranscript(videoId) {
-  const useProxy = isProxyConfigured();
   try {
     let selectedLang = null;
     let availableLangCodes = [];
 
-    // Try to get available languages using YoutubeTranscript
-    try {
-      const transcriptList = await YoutubeTranscript.listTranscripts(videoId);
-      if (transcriptList && transcriptList.length > 0) {
-        availableLangCodes = transcriptList.map(t => t.languageCode || t.lang).filter(Boolean);
-        logger.info(`Available languages`, `Count: ${availableLangCodes.length}`);
-      }
-    } catch (e) {
-      logger.warn(`Could not list transcripts`, `Video: ${videoId}`);
+    // Get available languages from youtubei.js
+    const yt = await getInnertube();
+    const info = await yt.getInfo(videoId);
+
+    if (info?.captions?.caption_tracks) {
+      availableLangCodes = info.captions.caption_tracks
+        .map(track => track.language_code)
+        .filter(Boolean);
+      logger.info(`Available languages`, `Count: ${availableLangCodes.length}`);
     }
 
     // Select best language using shared utility
@@ -351,37 +431,37 @@ async function fetchTimestampedTranscript(videoId) {
       logger.info(`Selected language`, `Language: ${selectedLang}`);
     }
 
-    const options = selectedLang ? { lang: selectedLang } : {};
-    logger.fetch(`Fetching timestamped transcript`, `Video: ${videoId}${selectedLang ? ` | Language: ${selectedLang}` : ''}${useProxy ? ' | Proxy: enabled' : ''}`);
+    logger.fetch(`Fetching timestamped transcript`, `Video: ${videoId}${selectedLang ? ` | Language: ${selectedLang}` : ''}`);
 
-    let transcript;
-    if (useProxy) {
-      transcript = await withProxy(async () => {
-        return YoutubeTranscript.fetchTranscript(videoId, options);
-      });
-    } else {
-      transcript = await YoutubeTranscript.fetchTranscript(videoId, options);
+    // Use youtubei.js directly for transcript fetching
+    const result = await fetchTranscriptWithInnerTubeTimestamped(info, videoId, selectedLang);
+
+    if (!result.success) {
+      logger.info(`Timestamped transcript failed`, `Video: ${videoId} | Error: ${result.error}`);
+      return { available: false, reason: 'fetch_failed', error: result.error };
     }
-    logger.info(`Raw transcript data`, `Length: ${transcript.length} entries`);
-    
+
+    const entries = result.entries;
+    logger.info(`Raw transcript data`, `Length: ${entries.length} entries`);
+
     let timestampedData = '';
     let regularData = '';
     let timestampedArray = [];
-    
-    transcript.forEach((entry) => {
+
+    entries.forEach((entry) => {
       const timedString = `time: ${entry.offset} second. Text: ${entry.text}`;
       timestampedArray.push(timedString);
       regularData += ' ' + entry.text;
     });
-    
+
     timestampedData = timestampedArray.join('\n');
     timestampedData = decodeEntities(timestampedData);
     regularData = decodeEntities(regularData.trim());
 
     logger.success(`Timestamped transcript fetched successfully`, `Video: ${videoId} | Length: ${timestampedData.length} chars`);
-    
-    return { 
-      available: true, 
+
+    return {
+      available: true,
       content: timestampedData,
       content_array: timestampedArray.map(item => decodeEntities(item)),
       regular_content: regularData,
