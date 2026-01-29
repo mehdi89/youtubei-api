@@ -14,8 +14,7 @@ const API_ENDPOINTS = {
 
 const TABS = ['Search', 'Video Details', 'Channel Details', 'Playlist'];
 
-export default function TestUI({ initialApiKey }) {
-  const [apiKey, setApiKey] = useState(initialApiKey || '');
+export default function TestUI() {
   const [activeTab, setActiveTab] = useState('Search');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -41,30 +40,21 @@ export default function TestUI({ initialApiKey }) {
   const [includeMetadata, setIncludeMetadata] = useState(true);
 
   const makeApiCall = useCallback(async (endpoint, body = null, method = 'POST') => {
-    if (!apiKey) {
-      setError('Please enter your API key');
-      return;
-    }
-
     setLoading(true);
     setError(null);
     setResult(null);
     setRawResponse(null);
 
     try {
-      const options = {
-        method,
+      // Use the proxy endpoint which adds the API key server-side
+      const response = await fetch('/api/test-proxy', {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'api-key': apiKey,
         },
-      };
+        body: JSON.stringify({ endpoint, body, method }),
+      });
 
-      if (body && method !== 'GET') {
-        options.body = JSON.stringify(body);
-      }
-
-      const response = await fetch(endpoint, options);
       const data = await response.json();
 
       setRawResponse(data);
@@ -80,7 +70,7 @@ export default function TestUI({ initialApiKey }) {
     } finally {
       setLoading(false);
     }
-  }, [apiKey]);
+  }, []);
 
   const handleSearch = () => {
     makeApiCall(API_ENDPOINTS.search, {
@@ -141,13 +131,6 @@ export default function TestUI({ initialApiKey }) {
           </div>
 
           <div style={styles.apiKeyContainer}>
-            <input
-              type="password"
-              placeholder="Enter API Key"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              style={styles.apiKeyInput}
-            />
             <button onClick={handleHealthCheck} style={styles.healthBtn}>
               Health Check
             </button>
@@ -1019,14 +1002,6 @@ const styles = {
   apiKeyContainer: {
     display: 'flex',
     gap: '8px',
-  },
-  apiKeyInput: {
-    padding: '8px 12px',
-    borderRadius: '4px',
-    border: '1px solid #303030',
-    backgroundColor: '#121212',
-    color: '#fff',
-    width: '200px',
   },
   healthBtn: {
     padding: '8px 16px',
@@ -1920,11 +1895,40 @@ const styles = {
   },
 };
 
-// Load API key from environment
-export async function getServerSideProps() {
+// Basic auth check
+export async function getServerSideProps({ req, res }) {
+  const basicAuthUser = process.env.TEST_UI_USER;
+  const basicAuthPass = process.env.TEST_UI_PASS;
+
+  // If credentials are not configured, deny access
+  if (!basicAuthUser || !basicAuthPass) {
+    res.setHeader('Content-Type', 'text/plain');
+    res.statusCode = 503;
+    res.end('Test UI is not configured. Set TEST_UI_USER and TEST_UI_PASS environment variables.');
+    return { props: {} };
+  }
+
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Basic ')) {
+    res.setHeader('WWW-Authenticate', 'Basic realm="YouTube API Test UI"');
+    res.statusCode = 401;
+    res.end('Authentication required');
+    return { props: {} };
+  }
+
+  const base64Credentials = authHeader.split(' ')[1];
+  const credentials = Buffer.from(base64Credentials, 'base64').toString('utf-8');
+  const [user, pass] = credentials.split(':');
+
+  if (user !== basicAuthUser || pass !== basicAuthPass) {
+    res.setHeader('WWW-Authenticate', 'Basic realm="YouTube API Test UI"');
+    res.statusCode = 401;
+    res.end('Invalid credentials');
+    return { props: {} };
+  }
+
   return {
-    props: {
-      initialApiKey: process.env.YOUTUBE_API_KEY || '',
-    },
+    props: {},
   };
 }
