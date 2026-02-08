@@ -165,7 +165,7 @@ export default async function handler(req, res) {
     return res.status(405).end();
   }
 
-  const { id, type } = req.body;
+  const { id, type, lang } = req.body;
   const apiKey = req.headers['api-key'];
 
   if (apiKey !== process.env.YOUTUBE_API_KEY) {
@@ -178,8 +178,8 @@ export default async function handler(req, res) {
     return res.status(400).json({ message: 'Video ID is required' });
   }
 
-  // Check cache first
-  const cacheKey = cache.generateKey('transcript', { id, type: type || 'regular' });
+  // Check cache first (include lang in cache key if specified)
+  const cacheKey = cache.generateKey('transcript', { id, type: type || 'regular', ...(lang && { lang }) });
   const cached = cache.get(cacheKey);
   if (cached) {
     logger.info(`Cache hit for transcript ${id}`);
@@ -197,11 +197,18 @@ export default async function handler(req, res) {
     if (availableLangCodes.length > 0) {
       logger.info(`Available languages`, `Codes: ${availableLangCodes.join(', ')}`);
 
-      // Use shared language selection utility
-      selectedLang = selectBestLanguage(availableLangCodes);
-
-      if (selectedLang) {
-        logger.info(`Selected language`, `Language: ${selectedLang}`);
+      // Use requested language if available, otherwise fall back to best selection
+      if (lang && availableLangCodes.includes(lang)) {
+        selectedLang = lang;
+        logger.info(`Using requested language`, `Language: ${selectedLang}`);
+      } else {
+        if (lang) {
+          logger.info(`Requested language '${lang}' not available, falling back`);
+        }
+        selectedLang = selectBestLanguage(availableLangCodes);
+        if (selectedLang) {
+          logger.info(`Selected language`, `Language: ${selectedLang}`);
+        }
       }
     }
 
@@ -235,11 +242,20 @@ export default async function handler(req, res) {
 
     res.status(200).json(response);
   } catch (error) {
-    if (error.message?.includes('Transcript is disabled')) {
-      logger.info(`Transcript disabled`, `Video: ${id}`);
-    } else {
-      logger.error(`Failed to fetch transcript`, `Video: ${id} | Error: ${error.message}`);
+    const noCaptionsErrors = [
+      'No captions available',
+      'No caption tracks',
+      'No transcript text found',
+      'Transcript is disabled',
+    ];
+    const isNoCaptions = noCaptionsErrors.some(msg => error.message?.includes(msg));
+
+    if (isNoCaptions) {
+      logger.info(`No captions for video`, `Video: ${id} | Reason: ${error.message}`);
+      return res.status(404).json({ message: error.message });
     }
+
+    logger.error(`Failed to fetch transcript`, `Video: ${id} | Error: ${error.message}`);
     res.status(500).json({ message: error.message });
   }
 }
