@@ -11,17 +11,28 @@ Log.setLevel(Log.Level.NONE);
 
 // Singleton Innertube instance (reused across requests)
 let innertubeInstance = null;
+let innertubeCreatedAt = 0;
+
+// Refresh session every 30 minutes to prevent stale sessions
+const SESSION_TTL_MS = 30 * 60 * 1000;
 
 /**
- * Get or create a singleton Innertube instance
+ * Get or create a singleton Innertube instance.
+ * Automatically refreshes if the session is older than SESSION_TTL_MS.
  * @returns {Promise<Innertube>}
  */
 export async function getInnertube() {
+  const now = Date.now();
+  if (innertubeInstance && (now - innertubeCreatedAt) > SESSION_TTL_MS) {
+    logger.info(`Innertube session expired (age: ${Math.round((now - innertubeCreatedAt) / 60000)}min), refreshing`);
+    innertubeInstance = null;
+  }
   if (!innertubeInstance) {
     logger.info('Creating new Innertube instance');
     innertubeInstance = await Innertube.create({
       generate_session_locally: true,
     });
+    innertubeCreatedAt = Date.now();
   }
   return innertubeInstance;
 }
@@ -31,6 +42,7 @@ export async function getInnertube() {
  */
 export function resetInnertube() {
   innertubeInstance = null;
+  innertubeCreatedAt = 0;
 }
 
 /**

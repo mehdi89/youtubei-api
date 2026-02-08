@@ -2,6 +2,7 @@ import logger from "@/utils/logger";
 import cache, { TTL } from '@/utils/cache';
 import {
   getInnertube,
+  resetInnertube,
   decodeEntities,
   selectBestLanguage,
   HIGH_CONFIDENCE_LANGUAGES
@@ -191,8 +192,18 @@ export default async function handler(req, res) {
 
   try {
     // Get available languages and video info in one call
-    const { langCodes, info } = await getTranscriptLanguages(id);
+    let { langCodes, info } = await getTranscriptLanguages(id);
     availableLangCodes = langCodes;
+
+    // If no captions found, retry once with a fresh session (stale session fix)
+    if (availableLangCodes.length === 0 && info) {
+      logger.info(`No captions found, retrying with fresh session`, `Video: ${id}`);
+      resetInnertube();
+      const retry = await getTranscriptLanguages(id);
+      langCodes = retry.langCodes;
+      info = retry.info;
+      availableLangCodes = langCodes;
+    }
 
     if (availableLangCodes.length > 0) {
       logger.info(`Available languages`, `Codes: ${availableLangCodes.join(', ')}`);
