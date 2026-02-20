@@ -34,13 +34,15 @@ npm run dev
 ## Docker Build
 
 ```bash
-docker-compose build --no-cache
-docker-compose up -d
+docker compose build --no-cache
+docker compose up -d
 ```
 
 ## Deployment
 
 ### Servers
+
+SSH username: `oisl`
 
 | Server | IP | Path |
 |--------|-----|------|
@@ -51,12 +53,13 @@ docker-compose up -d
 ### Deploy Commands
 
 ```bash
+ssh oisl@<server-ip>
 cd /var/www/html/youtubei-api
 git pull origin master
-docker-compose down
-docker-compose build --no-cache
-docker-compose up -d
-docker-compose logs -f
+docker compose down
+docker compose build --no-cache
+docker compose up -d
+docker compose logs -f
 ```
 
 ## Environment Variables
