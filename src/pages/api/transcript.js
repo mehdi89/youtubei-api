@@ -228,15 +228,6 @@ export default async function handler(req, res) {
     // Use youtubei.js directly for transcript fetching
     const result = await fetchTranscriptWithInnerTube(id, selectedLang, info);
     if (!result.success) {
-      // Fallback: use video description when no captions are available
-      const description = info?.basic_info?.short_description;
-      if (description && description.length > 0) {
-        logger.info(`No captions, falling back to video description`, `Video: ${id} | Length: ${description.length} chars`);
-        const response = { data: description, source: 'description' };
-        cache.set(cacheKey, response, TTL.TRANSCRIPT);
-        return res.status(200).json(response);
-      }
-
       throw new Error(result.error || 'No transcripts available');
     }
 
@@ -259,7 +250,7 @@ export default async function handler(req, res) {
     logger.success(`Transcript fetched successfully`, `Video: ${id} | Length: ${data.length} chars`);
 
     // Cache the response
-    const response = { data, source: 'captions' };
+    const response = { data };
     cache.set(cacheKey, response, TTL.TRANSCRIPT);
 
     res.status(200).json(response);
