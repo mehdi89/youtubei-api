@@ -42,22 +42,33 @@ async function fetchTranscriptWithInnerTube(videoId, langCode = null, existingIn
 
     logger.info(`youtubei.js: Using caption track`, `Video: ${videoId} | Lang: ${track.language_code}`);
 
-    // Fetch the caption XML using the innertube session
+    // Fetch captions using json3 format (cleaner than XML, no entity decoding needed)
     const captionUrl = track.base_url;
     if (!captionUrl) {
       logger.warn(`youtubei.js: No base_url in track`, `Video: ${videoId}`);
       return { success: false, error: 'No caption URL' };
     }
 
-    // Fetch caption XML
-    let xml;
+    const json3Url = captionUrl + '&fmt=json3';
+
+    let captionData;
     try {
-      // Try session fetch first
-      const response = await yt.session.http.fetch(captionUrl);
-      xml = await response.text();
-    } catch (sessionError) {
-      // Fallback to direct fetch with headers (using proxy if configured)
-      logger.warn(`youtubei.js: Session fetch failed, trying direct`, `Video: ${videoId}`);
+      // Try direct fetch first (json3 URLs don't need innertube session auth)
+      const response = await fetch(json3Url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Referer': `https://www.youtube.com/watch?v=${videoId}`,
+          'Origin': 'https://www.youtube.com'
+        }
+      });
+      if (!response.ok) {
+        throw new Error(`Caption fetch failed: ${response.status}`);
+      }
+      captionData = await response.json();
+    } catch (fetchError) {
+      // Fallback to proxy if configured
+      logger.warn(`youtubei.js: Direct fetch failed, trying proxy`, `Video: ${videoId}`);
 
       const useProxy = isProxyConfigured();
       if (useProxy) {
@@ -65,7 +76,7 @@ async function fetchTranscriptWithInnerTube(videoId, langCode = null, existingIn
       }
 
       const doFetch = async () => {
-        const response = await fetch(captionUrl, {
+        const response = await fetch(json3Url, {
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
@@ -76,49 +87,40 @@ async function fetchTranscriptWithInnerTube(videoId, langCode = null, existingIn
         if (!response.ok) {
           throw new Error(`Caption fetch failed: ${response.status}`);
         }
-        return response.text();
+        return response.json();
       };
 
       try {
-        xml = await withProxy(doFetch);
+        captionData = await withProxy(doFetch);
       } catch (proxyError) {
         logger.warn(`youtubei.js: Caption fetch failed`, `Video: ${videoId} | Error: ${proxyError.message}`);
         return { success: false, error: proxyError.message };
       }
     }
 
-    if (!xml) {
-      logger.warn(`youtubei.js: No XML received`, `Video: ${videoId}`);
+    if (!captionData) {
+      logger.warn(`youtubei.js: No caption data received`, `Video: ${videoId}`);
       return { success: false, error: 'Caption fetch failed' };
     }
 
-    // Parse XML to extract text segments
-    // Format: <text start="0" dur="5.5">Text here</text>
-    const textRegex = /<text[^>]*start="([^"]*)"[^>]*dur="([^"]*)"[^>]*>([^<]*)<\/text>/g;
+    // Parse json3 format: { events: [{ tStartMs, dDurationMs, segs: [{ utf8 }] }] }
+    const events = captionData.events || [];
     const entries = [];
-    let match;
 
-    while ((match = textRegex.exec(xml)) !== null) {
-      const text = match[3]
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'")
-        .replace(/\n/g, ' ')
-        .trim();
-
+    for (const event of events) {
+      if (!event.segs) continue;
+      const text = event.segs.map(s => s.utf8 || '').join('').replace(/\n/g, ' ').trim();
       if (text) {
         entries.push({
           text,
-          offset: parseFloat(match[1]) || 0,
-          duration: parseFloat(match[2]) || 0
+          offset: (event.tStartMs || 0) / 1000,
+          duration: (event.dDurationMs || 0) / 1000
         });
       }
     }
 
     if (entries.length === 0) {
-      logger.warn(`youtubei.js: No text extracted from XML`, `Video: ${videoId}`);
+      logger.warn(`youtubei.js: No text extracted from json3`, `Video: ${videoId}`);
       return { success: false, error: 'No transcript text found' };
     }
 
