@@ -68,7 +68,7 @@ export default async function handler(req, res) {
         timestampedTranscript = cachedTranscript.timestampedTranscript;
       } else {
         if (includeTimestamped) {
-          timestampedTranscript = await fetchTimestampedTranscript(id);
+          timestampedTranscript = await fetchTimestampedTranscript(id, video);
           if (!includeTranscript && timestampedTranscript.available) {
             transcript = { available: true, content: timestampedTranscript.regular_content };
           } else {
@@ -208,13 +208,15 @@ async function fetchVideo(id) {
  * Returns { success: false, error, hasCaptionsObject, hasTrack } on failure
  * so callers can determine retriability.
  */
-async function fetchTranscriptWithInnerTube(videoId) {
+async function fetchTranscriptWithInnerTube(videoId, video = null) {
   try {
     let yt = await getInnertube();
     let info = await yt.getInfo(videoId);
 
     // Stale session retry: if no captions found, reset session and try once more
-    if (info && !info.captions) {
+    // Skip retry for videos that legitimately won't have captions (live, upcoming, recent streams)
+    const skipRetry = video && (video.isLiveContent || video.isUpcoming || video.startTimestamp);
+    if (info && !info.captions && !skipRetry) {
       logger.info(`No captions on first try, retrying with fresh session`, `Video: ${videoId}`);
       resetInnertube();
       yt = await getInnertube();
@@ -425,7 +427,7 @@ async function fetchTranscript(video, videoId) {
     logger.fetch(`Transcript for ${videoId}`);
 
     // Use youtubei.js directly for transcript fetching
-    const result = await fetchTranscriptWithInnerTube(videoId);
+    const result = await fetchTranscriptWithInnerTube(videoId, video);
     if (result.success) {
       logger.success(`Got transcript for ${videoId}`);
       return { available: true, content: result.content, retriable: false };
@@ -472,7 +474,7 @@ async function fetchTranscript(video, videoId) {
   }
 }
 
-async function fetchTimestampedTranscript(videoId) {
+async function fetchTimestampedTranscript(videoId, video = null) {
   try {
     let selectedLang = null;
     let availableLangCodes = [];
@@ -481,8 +483,9 @@ async function fetchTimestampedTranscript(videoId) {
     let yt = await getInnertube();
     let info = await yt.getInfo(videoId);
 
-    // Stale session retry: if no captions found, reset session and try once more
-    if (info && !info.captions) {
+    // Stale session retry: skip for videos that legitimately won't have captions
+    const skipRetry = video && (video.isLiveContent || video.isUpcoming || video.startTimestamp);
+    if (info && !info.captions && !skipRetry) {
       logger.info(`No captions on first try, retrying with fresh session`, `Video: ${videoId}`);
       resetInnertube();
       yt = await getInnertube();
