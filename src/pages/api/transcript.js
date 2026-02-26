@@ -82,9 +82,10 @@ async function fetchTranscriptWithInnerTube(videoId, langCode = null, existingIn
           'Referer': `https://www.youtube.com/watch?v=${videoId}`,
           'Origin': 'https://www.youtube.com'
         });
+        logger.info(`Proxy succeeded after ${proxyResult.hops} hop(s)`, `Video: ${videoId}`);
         captionData = JSON.parse(proxyResult.body);
       } catch (proxyError) {
-        logger.warn(`youtubei.js: Proxy fetch also failed`, `Video: ${videoId} | Error: ${proxyError.message}`);
+        logger.warn(`Proxy failed after all hops`, `Video: ${videoId} | Error: ${proxyError.message}`);
         return { success: false, error: proxyError.message };
       }
     }

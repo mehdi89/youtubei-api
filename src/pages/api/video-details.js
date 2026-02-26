@@ -232,8 +232,10 @@ async function fetchTranscriptWithInnerTube(videoId) {
           'Accept-Language': 'en-US,en;q=0.9',
           'Referer': `https://www.youtube.com/watch?v=${videoId}`
         });
+        logger.info(`Proxy succeeded after ${proxyResult.hops} hop(s)`, `Video: ${videoId}`);
         xml = proxyResult.body;
       } catch (proxyError) {
+        logger.warn(`Proxy failed after all hops`, `Video: ${videoId} | Error: ${proxyError.message}`);
         return { success: false, error: proxyError.message };
       }
     }
@@ -318,8 +320,10 @@ async function fetchTranscriptWithInnerTubeTimestamped(info, videoId, langCode =
           'Accept-Language': 'en-US,en;q=0.9',
           'Referer': `https://www.youtube.com/watch?v=${videoId}`
         });
+        logger.info(`Proxy succeeded after ${proxyResult.hops} hop(s)`, `Video: ${videoId}`);
         xml = proxyResult.body;
       } catch (proxyError) {
+        logger.warn(`Proxy failed after all hops`, `Video: ${videoId} | Error: ${proxyError.message}`);
         return { success: false, error: proxyError.message };
       }
     }

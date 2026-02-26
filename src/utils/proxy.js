@@ -73,53 +73,72 @@ export function isProxyConfigured() {
 
 /**
  * Fetch a URL through the proxy pool.
- * Returns the response body as text, or throws on failure.
+ * Tries each healthy server in round-robin order until one succeeds.
+ * Returns { body, status, contentType, hops } where hops = number of servers tried.
  */
 export async function proxyFetch(url, headers = {}) {
-  const server = pickServer();
-  if (!server) {
+  const healthy = pool.filter(isHealthy);
+  if (healthy.length === 0) {
+    logger.error('Proxy pool exhausted', 'No healthy servers available | hops: 0');
     throw new Error('No healthy proxy servers available');
   }
 
-  logger.info('Using proxy server', server);
+  const startIdx = rrIndex;
+  let lastError = null;
 
-  try {
-    // Determine auth: yt-api servers use api-key header, extra servers use secret in body
-    const isYtApi = server.includes('/api/proxy-fetch');
+  for (let hop = 1; hop <= healthy.length; hop++) {
+    const server = healthy[(startIdx + hop - 1) % healthy.length];
+    rrIndex = (startIdx + hop) % healthy.length;
 
-    const requestBody = isYtApi
-      ? { url, headers }
-      : { url, headers, secret: PROXY_SECRET };
+    logger.info('Using proxy server', `${server} | hop: ${hop}/${healthy.length}`);
 
-    const requestHeaders = { 'Content-Type': 'application/json' };
-    if (isYtApi) {
-      requestHeaders['api-key'] = API_KEY;
+    try {
+      const result = await fetchFromServer(server, url, headers);
+      recordSuccess(server);
+      logger.success('Proxy fetch succeeded', `${server} | hop: ${hop}/${healthy.length}`);
+      return { ...result, hops: hop };
+    } catch (error) {
+      recordFailure(server);
+      logger.warn('Proxy hop failed', `${server} | hop: ${hop}/${healthy.length} | ${error.message}`);
+      lastError = error;
     }
-
-    const response = await fetch(server, {
-      method: 'POST',
-      headers: requestHeaders,
-      body: JSON.stringify(requestBody),
-      signal: AbortSignal.timeout(15_000)
-    });
-
-    if (!response.ok) {
-      throw new Error(`Proxy returned ${response.status}`);
-    }
-
-    const data = await response.json();
-
-    if (!data.body && data.status !== 200) {
-      throw new Error(`Proxied request failed with status ${data.status}`);
-    }
-
-    recordSuccess(server);
-    return { body: data.body, status: data.status, contentType: data.contentType };
-  } catch (error) {
-    recordFailure(server);
-    logger.warn('Proxy fetch failed', `${server} | ${error.message}`);
-    throw error;
   }
+
+  logger.error('Proxy pool exhausted', `All ${healthy.length} servers failed | url: ${url.substring(0, 80)}`);
+  throw lastError;
+}
+
+async function fetchFromServer(server, url, headers) {
+  // Determine auth: yt-api servers use api-key header, extra servers use secret in body
+  const isYtApi = server.includes('/api/proxy-fetch');
+
+  const requestBody = isYtApi
+    ? { url, headers }
+    : { url, headers, secret: PROXY_SECRET };
+
+  const requestHeaders = { 'Content-Type': 'application/json' };
+  if (isYtApi) {
+    requestHeaders['api-key'] = API_KEY;
+  }
+
+  const response = await fetch(server, {
+    method: 'POST',
+    headers: requestHeaders,
+    body: JSON.stringify(requestBody),
+    signal: AbortSignal.timeout(15_000)
+  });
+
+  if (!response.ok) {
+    throw new Error(`Proxy returned ${response.status}`);
+  }
+
+  const data = await response.json();
+
+  if (!data.body && data.status !== 200) {
+    throw new Error(`Proxied request failed with status ${data.status}`);
+  }
+
+  return { body: data.body, status: data.status, contentType: data.contentType };
 }
 
 /**
