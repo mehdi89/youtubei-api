@@ -225,13 +225,14 @@ async function fetchTranscriptWithInnerTube(videoId) {
         logger.info('Using proxy for caption fetch', `Video: ${videoId}`);
       }
 
-      const doFetch = async () => {
+      const doFetch = async (dispatcher) => {
         const response = await fetch(captionUrl, {
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
             'Referer': `https://www.youtube.com/watch?v=${videoId}`
-          }
+          },
+          ...(dispatcher && { dispatcher })
         });
         if (!response.ok) {
           throw new Error(`Caption fetch failed: ${response.status}`);
@@ -319,13 +320,14 @@ async function fetchTranscriptWithInnerTubeTimestamped(info, videoId, langCode =
         logger.info('Using proxy for caption fetch', `Video: ${videoId}`);
       }
 
-      const doFetch = async () => {
+      const doFetch = async (dispatcher) => {
         const response = await fetch(captionUrl, {
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
             'Referer': `https://www.youtube.com/watch?v=${videoId}`
-          }
+          },
+          ...(dispatcher && { dispatcher })
         });
         if (!response.ok) {
           throw new Error(`Caption fetch failed: ${response.status}`);

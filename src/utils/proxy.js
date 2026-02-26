@@ -7,7 +7,7 @@
  * Uses undici ProxyAgent which works with Node.js native fetch.
  */
 
-import { ProxyAgent, setGlobalDispatcher, getGlobalDispatcher } from 'undici';
+import { ProxyAgent } from 'undici';
 import logger from './logger.js';
 
 const EVOMI_API_KEY = process.env.EVOMI_API_KEY;
@@ -17,9 +17,6 @@ const EVOMI_API_URL = 'https://api.evomi.com/public/generate';
 let cachedProxyUrl = null;
 let cacheTimestamp = 0;
 const CACHE_TTL = 60 * 60 * 1000; // 1 hour
-
-// Store original dispatcher
-let originalDispatcher = null;
 
 /**
  * Generate proxy credentials from Evomi API
@@ -92,39 +89,6 @@ export async function getProxyAgent() {
 }
 
 /**
- * Enable proxy for global fetch using undici dispatcher
- * Call this before making transcript requests
- */
-export async function enableProxyForFetch() {
-  const agent = await getProxyAgent();
-
-  if (!agent) {
-    logger.warn('Proxy not available, using direct connection');
-    return false;
-  }
-
-  // Store original dispatcher
-  originalDispatcher = getGlobalDispatcher();
-
-  // Set proxy as global dispatcher
-  setGlobalDispatcher(agent);
-
-  logger.info('Proxy enabled for fetch requests');
-  return true;
-}
-
-/**
- * Disable proxy and restore original dispatcher
- */
-export function disableProxyForFetch() {
-  if (originalDispatcher) {
-    setGlobalDispatcher(originalDispatcher);
-    originalDispatcher = null;
-    logger.info('Proxy disabled, restored original fetch');
-  }
-}
-
-/**
  * Check if proxy is configured
  */
 export function isProxyConfigured() {
@@ -132,28 +96,29 @@ export function isProxyConfigured() {
 }
 
 /**
- * Execute a function with proxy enabled, then restore original fetch
+ * Execute a function with proxy dispatcher passed as argument.
+ * The function receives the proxy dispatcher (or undefined) which should
+ * be passed as the `dispatcher` option to fetch() calls.
+ * This avoids modifying the global dispatcher which causes race conditions
+ * with concurrent requests.
  */
 export async function withProxy(fn) {
   if (!isProxyConfigured()) {
     return fn();
   }
 
-  const proxyEnabled = await enableProxyForFetch();
-
-  try {
-    return await fn();
-  } finally {
-    if (proxyEnabled) {
-      disableProxyForFetch();
-    }
+  const agent = await getProxyAgent();
+  if (!agent) {
+    logger.warn('Proxy not available, using direct connection');
+    return fn();
   }
+
+  logger.info('Using proxy dispatcher for fetch request');
+  return fn(agent);
 }
 
 export default {
   getProxyAgent,
-  enableProxyForFetch,
-  disableProxyForFetch,
   isProxyConfigured,
   withProxy
 };
