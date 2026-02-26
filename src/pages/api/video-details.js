@@ -168,6 +168,8 @@ async function fetchVideo(id) {
       viewCount: basicInfo.view_count || null,
       likeCount: basicInfo.like_count || null,
       isLiveContent: basicInfo.is_live || false,
+      isUpcoming: basicInfo.is_upcoming || false,
+      startTimestamp: basicInfo.start_timestamp || null,
       uploadDate: videoDetails?.published?.text || videoDetails?.relative_date?.text || null,
       channel: channel,
       chapters: chapters,
@@ -551,6 +553,8 @@ function formatResponse(video, transcript, timestampedTranscript, includeTranscr
     duration: video.duration,
     likeCount: video.likeCount,
     isLiveContent: video.isLiveContent,
+    isUpcoming: video.isUpcoming,
+    startTimestamp: video.startTimestamp,
     uploadDate: video.uploadDate,
     viewCount: video.viewCount,
   };
