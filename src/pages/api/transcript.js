@@ -7,7 +7,7 @@ import {
   selectBestLanguage,
   HIGH_CONFIDENCE_LANGUAGES
 } from '@/utils/innertube';
-import { withProxy, isProxyConfigured } from '@/utils/proxy';
+import { proxyFetch, isProxyConfigured } from '@/utils/proxy';
 
 /**
  * Fetch transcript using youtubei.js caption URL directly
@@ -67,34 +67,24 @@ async function fetchTranscriptWithInnerTube(videoId, langCode = null, existingIn
       }
       captionData = await response.json();
     } catch (fetchError) {
-      // Fallback to proxy if configured
-      logger.warn(`youtubei.js: Direct fetch failed, trying proxy`, `Video: ${videoId}`);
-
-      const useProxy = isProxyConfigured();
-      if (useProxy) {
-        logger.info('Using proxy for caption fetch', `Video: ${videoId}`);
+      // Fallback to proxy pool if configured
+      if (!isProxyConfigured()) {
+        logger.warn(`youtubei.js: Direct fetch failed, no proxy available`, `Video: ${videoId}`);
+        return { success: false, error: fetchError.message };
       }
 
-      const doFetch = async (dispatcher) => {
-        const response = await fetch(json3Url, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Referer': `https://www.youtube.com/watch?v=${videoId}`,
-            'Origin': 'https://www.youtube.com'
-          },
-          ...(dispatcher && { dispatcher })
-        });
-        if (!response.ok) {
-          throw new Error(`Caption fetch failed: ${response.status}`);
-        }
-        return response.json();
-      };
+      logger.warn(`youtubei.js: Direct fetch failed, trying proxy pool`, `Video: ${videoId}`);
 
       try {
-        captionData = await withProxy(doFetch);
+        const proxyResult = await proxyFetch(json3Url, {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Referer': `https://www.youtube.com/watch?v=${videoId}`,
+          'Origin': 'https://www.youtube.com'
+        });
+        captionData = JSON.parse(proxyResult.body);
       } catch (proxyError) {
-        logger.warn(`youtubei.js: Caption fetch failed`, `Video: ${videoId} | Error: ${proxyError.message}`);
+        logger.warn(`youtubei.js: Proxy fetch also failed`, `Video: ${videoId} | Error: ${proxyError.message}`);
         return { success: false, error: proxyError.message };
       }
     }

@@ -6,7 +6,7 @@ import {
   HIGH_CONFIDENCE_LANGUAGES
 } from '@/utils/innertube';
 import cache, { TTL } from '@/utils/cache';
-import { withProxy, isProxyConfigured } from '@/utils/proxy';
+import { proxyFetch, isProxyConfigured } from '@/utils/proxy';
 
 // Get API key from environment variables
 const API_KEY = process.env.YOUTUBE_API_KEY;
@@ -219,29 +219,20 @@ async function fetchTranscriptWithInnerTube(videoId) {
       const response = await yt.session.http.fetch(captionUrl);
       xml = await response.text();
     } catch (fetchError) {
-      // Fallback to direct fetch with headers (using proxy if configured)
-      const useProxy = isProxyConfigured();
-      if (useProxy) {
-        logger.info('Using proxy for caption fetch', `Video: ${videoId}`);
+      // Fallback to proxy pool if configured
+      if (!isProxyConfigured()) {
+        return { success: false, error: fetchError.message };
       }
 
-      const doFetch = async (dispatcher) => {
-        const response = await fetch(captionUrl, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Referer': `https://www.youtube.com/watch?v=${videoId}`
-          },
-          ...(dispatcher && { dispatcher })
-        });
-        if (!response.ok) {
-          throw new Error(`Caption fetch failed: ${response.status}`);
-        }
-        return response.text();
-      };
+      logger.info('Using proxy pool for caption fetch', `Video: ${videoId}`);
 
       try {
-        xml = await withProxy(doFetch);
+        const proxyResult = await proxyFetch(captionUrl, {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Referer': `https://www.youtube.com/watch?v=${videoId}`
+        });
+        xml = proxyResult.body;
       } catch (proxyError) {
         return { success: false, error: proxyError.message };
       }
@@ -314,29 +305,20 @@ async function fetchTranscriptWithInnerTubeTimestamped(info, videoId, langCode =
       const response = await yt.session.http.fetch(captionUrl);
       xml = await response.text();
     } catch (fetchError) {
-      // Fallback to direct fetch with headers (using proxy if configured)
-      const useProxy = isProxyConfigured();
-      if (useProxy) {
-        logger.info('Using proxy for caption fetch', `Video: ${videoId}`);
+      // Fallback to proxy pool if configured
+      if (!isProxyConfigured()) {
+        return { success: false, error: fetchError.message };
       }
 
-      const doFetch = async (dispatcher) => {
-        const response = await fetch(captionUrl, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Referer': `https://www.youtube.com/watch?v=${videoId}`
-          },
-          ...(dispatcher && { dispatcher })
-        });
-        if (!response.ok) {
-          throw new Error(`Caption fetch failed: ${response.status}`);
-        }
-        return response.text();
-      };
+      logger.info('Using proxy pool for caption fetch', `Video: ${videoId}`);
 
       try {
-        xml = await withProxy(doFetch);
+        const proxyResult = await proxyFetch(captionUrl, {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Referer': `https://www.youtube.com/watch?v=${videoId}`
+        });
+        xml = proxyResult.body;
       } catch (proxyError) {
         return { success: false, error: proxyError.message };
       }

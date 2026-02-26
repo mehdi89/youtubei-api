@@ -1,124 +1,138 @@
 /**
- * Evomi Proxy Configuration
+ * Proxy Pool - Server-to-server proxy for YouTube fetching
  *
- * Handles residential proxy setup for YouTube transcript fetching
- * to bypass rate limiting.
+ * When a direct YouTube fetch fails (rate limited), picks another server
+ * from the pool to proxy the request through.
  *
- * Uses undici ProxyAgent which works with Node.js native fetch.
+ * Env vars:
+ *   PROXY_SERVERS - comma-separated list of proxy endpoints
+ *   SERVER_IP     - this server's own IP (to skip self in pool)
+ *   PROXY_SECRET  - shared secret for auth between servers
  */
 
-import { ProxyAgent } from 'undici';
 import logger from './logger.js';
 
-const EVOMI_API_KEY = process.env.EVOMI_API_KEY;
-const EVOMI_API_URL = 'https://api.evomi.com/public/generate';
+const PROXY_SERVERS = (process.env.PROXY_SERVERS || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
 
-// Cache proxy credentials to avoid repeated API calls
-let cachedProxyUrl = null;
-let cacheTimestamp = 0;
-const CACHE_TTL = 60 * 60 * 1000; // 1 hour
+const SERVER_IP = process.env.SERVER_IP || '';
+const PROXY_SECRET = process.env.PROXY_SECRET || '';
+const API_KEY = process.env.YOUTUBE_API_KEY || '';
 
-/**
- * Generate proxy credentials from Evomi API
- */
-async function generateProxyCredentials() {
-  if (!EVOMI_API_KEY) {
-    return null;
+// Filter out self from pool
+const pool = PROXY_SERVERS.filter(url => !url.includes(SERVER_IP));
+
+// Round-robin index
+let rrIndex = 0;
+
+// Health tracking: 3 consecutive failures → unhealthy for 60s
+const health = new Map(); // url → { failures: number, unhealthyUntil: number }
+
+function isHealthy(url) {
+  const entry = health.get(url);
+  if (!entry) return true;
+  if (entry.unhealthyUntil && Date.now() < entry.unhealthyUntil) return false;
+  if (entry.unhealthyUntil && Date.now() >= entry.unhealthyUntil) {
+    // Reset after cooldown
+    health.delete(url);
+    return true;
   }
+  return true;
+}
 
-  // Check cache
-  if (cachedProxyUrl && (Date.now() - cacheTimestamp) < CACHE_TTL) {
-    return cachedProxyUrl;
+function recordSuccess(url) {
+  health.delete(url);
+}
+
+function recordFailure(url) {
+  const entry = health.get(url) || { failures: 0, unhealthyUntil: 0 };
+  entry.failures += 1;
+  if (entry.failures >= 3) {
+    entry.unhealthyUntil = Date.now() + 60_000;
+    logger.warn('Proxy server marked unhealthy for 60s', url);
   }
+  health.set(url, entry);
+}
 
-  try {
-    const params = new URLSearchParams({
-      product: 'rpc', // Residential Proxies Core ($0.49/GB)
-      countries: 'US',
-      format: '1', // username:password@host:port
-      protocol: 'http',
-      amount: '1',
-      apikey: EVOMI_API_KEY
-    });
-
-    const response = await fetch(`${EVOMI_API_URL}?${params}`);
-
-    // Evomi API returns plain text in format: username:password@host:port
-    const text = await response.text();
-
-    if (!response.ok) {
-      logger.error('Evomi API error', `Status: ${response.status}, Body: ${text}`);
-      return null;
-    }
-
-    // Check if response looks like an error message
-    if (text.includes('error') || text.includes('Error')) {
-      logger.error('Evomi API error', text);
-      return null;
-    }
-
-    cachedProxyUrl = text.trim();
-    cacheTimestamp = Date.now();
-    logger.info('Evomi proxy credentials generated');
-    return cachedProxyUrl;
-  } catch (error) {
-    logger.error('Failed to generate proxy credentials', error.message);
-    return null;
-  }
+function pickServer() {
+  const healthy = pool.filter(isHealthy);
+  if (healthy.length === 0) return null;
+  const server = healthy[rrIndex % healthy.length];
+  rrIndex = (rrIndex + 1) % healthy.length;
+  return server;
 }
 
 /**
- * Get configured ProxyAgent for undici/fetch
- * Returns null if proxy is not configured or unavailable
- */
-export async function getProxyAgent() {
-  const proxyUrl = await generateProxyCredentials();
-
-  if (!proxyUrl) {
-    return null;
-  }
-
-  try {
-    // Format: username:password@host:port -> http://username:password@host:port
-    const fullProxyUrl = proxyUrl.startsWith('http') ? proxyUrl : `http://${proxyUrl}`;
-    return new ProxyAgent(fullProxyUrl);
-  } catch (error) {
-    logger.error('Failed to create proxy agent', error.message);
-    return null;
-  }
-}
-
-/**
- * Check if proxy is configured
+ * Check if proxy pool is configured
  */
 export function isProxyConfigured() {
-  return !!EVOMI_API_KEY;
+  return pool.length > 0;
 }
 
 /**
- * Execute a function with proxy dispatcher passed as argument.
- * The function receives the proxy dispatcher (or undefined) which should
- * be passed as the `dispatcher` option to fetch() calls.
- * This avoids modifying the global dispatcher which causes race conditions
- * with concurrent requests.
+ * Fetch a URL through the proxy pool.
+ * Returns the response body as text, or throws on failure.
+ */
+export async function proxyFetch(url, headers = {}) {
+  const server = pickServer();
+  if (!server) {
+    throw new Error('No healthy proxy servers available');
+  }
+
+  logger.info('Using proxy server', server);
+
+  try {
+    // Determine auth: yt-api servers use api-key header, extra servers use secret in body
+    const isYtApi = server.includes('/api/proxy-fetch');
+
+    const requestBody = isYtApi
+      ? { url, headers }
+      : { url, headers, secret: PROXY_SECRET };
+
+    const requestHeaders = { 'Content-Type': 'application/json' };
+    if (isYtApi) {
+      requestHeaders['api-key'] = API_KEY;
+    }
+
+    const response = await fetch(server, {
+      method: 'POST',
+      headers: requestHeaders,
+      body: JSON.stringify(requestBody),
+      signal: AbortSignal.timeout(15_000)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Proxy returned ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    if (!data.body && data.status !== 200) {
+      throw new Error(`Proxied request failed with status ${data.status}`);
+    }
+
+    recordSuccess(server);
+    return { body: data.body, status: data.status, contentType: data.contentType };
+  } catch (error) {
+    recordFailure(server);
+    logger.warn('Proxy fetch failed', `${server} | ${error.message}`);
+    throw error;
+  }
+}
+
+/**
+ * Legacy wrapper for backward compatibility.
+ * Falls back to proxy pool when direct fetch fails.
+ * The function `fn` is called with no arguments (direct fetch).
  */
 export async function withProxy(fn) {
-  if (!isProxyConfigured()) {
-    return fn();
-  }
-
-  const agent = await getProxyAgent();
-  if (!agent) {
-    logger.warn('Proxy not available, using direct connection');
-    return fn();
-  }
-
-  logger.info('Using proxy dispatcher for fetch request');
-  return fn(agent);
+  return fn();
 }
 
 export default {
-  getProxyAgent,
   isProxyConfigured,
+  proxyFetch,
   withProxy
 };
