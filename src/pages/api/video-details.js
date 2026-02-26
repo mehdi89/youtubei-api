@@ -1,7 +1,6 @@
 import logger from "@/utils/logger";
 import {
   getInnertube,
-  resetInnertube,
   decodeEntities,
   selectBestLanguage,
   HIGH_CONFIDENCE_LANGUAGES
@@ -68,7 +67,7 @@ export default async function handler(req, res) {
         timestampedTranscript = cachedTranscript.timestampedTranscript;
       } else {
         if (includeTimestamped) {
-          timestampedTranscript = await fetchTimestampedTranscript(id, video);
+          timestampedTranscript = await fetchTimestampedTranscript(id, video._captions);
           if (!includeTranscript && timestampedTranscript.available) {
             transcript = { available: true, content: timestampedTranscript.regular_content };
           } else {
@@ -208,26 +207,14 @@ async function fetchVideo(id) {
  * Returns { success: false, error, hasCaptionsObject, hasTrack } on failure
  * so callers can determine retriability.
  */
-async function fetchTranscriptWithInnerTube(videoId, video = null) {
+async function fetchTranscriptWithInnerTube(videoId, captions = null) {
   try {
-    let yt = await getInnertube();
-    let info = await yt.getInfo(videoId);
-
-    // Stale session retry: if no captions found, reset session and try once more
-    // Skip retry for videos that legitimately won't have captions (live, upcoming, recent streams)
-    const skipRetry = video && (video.isLiveContent || video.isUpcoming || video.startTimestamp);
-    if (info && !info.captions && !skipRetry) {
-      logger.info(`No captions on first try, retrying with fresh session`, `Video: ${videoId}`);
-      resetInnertube();
-      yt = await getInnertube();
-      info = await yt.getInfo(videoId);
-    }
-
-    if (!info || !info.captions) {
+    // Reuse captions from fetchVideo() to avoid duplicate yt.getInfo() call
+    if (!captions) {
       return { success: false, error: 'No captions available', hasCaptionsObject: false, hasTrack: false };
     }
 
-    const captionTracks = info.captions.caption_tracks || [];
+    const captionTracks = captions.caption_tracks || [];
     if (captionTracks.length === 0) {
       return { success: false, error: 'No caption tracks', hasCaptionsObject: true, hasTrack: false };
     }
@@ -314,15 +301,15 @@ async function fetchTranscriptWithInnerTube(videoId, video = null) {
 }
 
 /**
- * Fetch timestamped transcript using youtubei.js with existing info object
+ * Fetch timestamped transcript using captions object from fetchVideo()
  */
-async function fetchTranscriptWithInnerTubeTimestamped(info, videoId, langCode = null) {
+async function fetchTranscriptWithInnerTubeTimestamped(captions, videoId, langCode = null) {
   try {
-    if (!info || !info.captions) {
+    if (!captions) {
       return { success: false, error: 'No captions available' };
     }
 
-    const captionTracks = info.captions.caption_tracks || [];
+    const captionTracks = captions.caption_tracks || [];
     if (captionTracks.length === 0) {
       return { success: false, error: 'No caption tracks' };
     }
@@ -426,8 +413,8 @@ async function fetchTranscript(video, videoId) {
   try {
     logger.fetch(`Transcript for ${videoId}`);
 
-    // Use youtubei.js directly for transcript fetching
-    const result = await fetchTranscriptWithInnerTube(videoId, video);
+    // Use youtubei.js directly for transcript fetching (reuse captions from fetchVideo)
+    const result = await fetchTranscriptWithInnerTube(videoId, video._captions);
     if (result.success) {
       logger.success(`Got transcript for ${videoId}`);
       return { available: true, content: result.content, retriable: false };
@@ -474,26 +461,14 @@ async function fetchTranscript(video, videoId) {
   }
 }
 
-async function fetchTimestampedTranscript(videoId, video = null) {
+async function fetchTimestampedTranscript(videoId, captions = null) {
   try {
     let selectedLang = null;
     let availableLangCodes = [];
 
-    // Get available languages from youtubei.js
-    let yt = await getInnertube();
-    let info = await yt.getInfo(videoId);
-
-    // Stale session retry: skip for videos that legitimately won't have captions
-    const skipRetry = video && (video.isLiveContent || video.isUpcoming || video.startTimestamp);
-    if (info && !info.captions && !skipRetry) {
-      logger.info(`No captions on first try, retrying with fresh session`, `Video: ${videoId}`);
-      resetInnertube();
-      yt = await getInnertube();
-      info = await yt.getInfo(videoId);
-    }
-
-    if (info?.captions?.caption_tracks) {
-      availableLangCodes = info.captions.caption_tracks
+    // Reuse captions from fetchVideo() to avoid duplicate yt.getInfo() call
+    if (captions?.caption_tracks) {
+      availableLangCodes = captions.caption_tracks
         .map(track => track.language_code)
         .filter(Boolean);
       logger.info(`Available languages`, `Count: ${availableLangCodes.length}`);
@@ -509,7 +484,7 @@ async function fetchTimestampedTranscript(videoId, video = null) {
     logger.fetch(`Fetching timestamped transcript`, `Video: ${videoId}${selectedLang ? ` | Language: ${selectedLang}` : ''}`);
 
     // Use youtubei.js directly for transcript fetching
-    const result = await fetchTranscriptWithInnerTubeTimestamped(info, videoId, selectedLang);
+    const result = await fetchTranscriptWithInnerTubeTimestamped(captions, videoId, selectedLang);
 
     if (!result.success) {
       logger.info(`Timestamped transcript failed`, `Video: ${videoId} | Error: ${result.error}`);
