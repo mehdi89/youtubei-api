@@ -445,10 +445,15 @@ async function fetchTranscript(video, videoId) {
     }
 
     // No captions system at all
-    // But if video was a live stream (has startTimestamp), YouTube may still be processing VOD captions
+    // But if video was a recently ended live stream, YouTube may still be processing VOD captions
     if (video.startTimestamp) {
-      logger.info(`No transcript yet - past live stream, may still be processing`, `Video: ${videoId}`);
-      return { available: false, reason: 'processing', retriable: true };
+      const streamAge = Date.now() - new Date(video.startTimestamp).getTime();
+      const threeHours = 3 * 60 * 60 * 1000;
+      if (streamAge < threeHours) {
+        logger.info(`No transcript yet - stream ended <3h ago, may still be processing`, `Video: ${videoId}`);
+        return { available: false, reason: 'processing', retriable: true };
+      }
+      logger.info(`No transcript - past live stream >3h old, likely no captions`, `Video: ${videoId}`);
     }
 
     logger.info(`No transcript - No captions`, `Video: ${videoId}`);
