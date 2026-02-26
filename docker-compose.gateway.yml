@@ -1,0 +1,25 @@
+## Redis overlay for Gateway (Server 1 only)
+## Usage: docker compose -f docker-compose.yml -f docker-compose.gateway.yml up -d
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: youtubei-redis
+    restart: always
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  prod:
+    depends_on:
+      - redis
+    environment:
+      - REDIS_URL=redis://redis:6379
+
+volumes:
+  redis-data:

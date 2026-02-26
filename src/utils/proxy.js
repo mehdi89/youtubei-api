@@ -1,8 +1,12 @@
 /**
  * Proxy Pool - Server-to-server proxy for YouTube fetching
  *
- * When a direct YouTube fetch fails (rate limited), picks another server
- * from the pool to proxy the request through.
+ * Two levels of health tracking:
+ *   1. Server health: proxy server unreachable → 3 failures → 60s cooldown
+ *   2. YouTube blocks: YouTube blocked this proxy's IP → instant 5min cooldown
+ *
+ * Also tracks the gateway's own direct IP for YouTube blocks,
+ * so endpoints can skip direct fetch and go straight to proxy.
  *
  * Env vars:
  *   PROXY_SERVERS - comma-separated list of proxy endpoints
@@ -27,23 +31,39 @@ const pool = PROXY_SERVERS.filter(url => !url.includes(SERVER_IP));
 // Round-robin index
 let rrIndex = 0;
 
-// Health tracking: 3 consecutive failures → unhealthy for 60s
-const health = new Map(); // url → { failures: number, unhealthyUntil: number }
+// --- Server health: proxy unreachable (3 failures → 60s cooldown) ---
+const health = new Map(); // url → { failures, unhealthyUntil }
+
+// --- YouTube block tracking: IP blocked by YouTube (instant → 5min cooldown) ---
+const ytBlocks = new Map(); // url → { blockedUntil }
+const YT_BLOCK_COOLDOWN = 5 * 60_000; // 5 minutes
+
+// --- Direct IP tracking: gateway's own IP blocked by YouTube ---
+let directBlock = { blockedUntil: 0 };
+
+// ---- Health checks ----
 
 function isHealthy(url) {
+  // Check server health
   const entry = health.get(url);
-  if (!entry) return true;
-  if (entry.unhealthyUntil && Date.now() < entry.unhealthyUntil) return false;
-  if (entry.unhealthyUntil && Date.now() >= entry.unhealthyUntil) {
-    // Reset after cooldown
+  if (entry?.unhealthyUntil && Date.now() < entry.unhealthyUntil) return false;
+  if (entry?.unhealthyUntil && Date.now() >= entry.unhealthyUntil) {
     health.delete(url);
-    return true;
   }
+
+  // Check YouTube blocks
+  const block = ytBlocks.get(url);
+  if (block && Date.now() < block.blockedUntil) return false;
+  if (block && Date.now() >= block.blockedUntil) {
+    ytBlocks.delete(url);
+  }
+
   return true;
 }
 
 function recordSuccess(url) {
   health.delete(url);
+  // Don't clear ytBlocks on success - let the cooldown expire naturally
 }
 
 function recordFailure(url) {
@@ -56,19 +76,76 @@ function recordFailure(url) {
   health.set(url, entry);
 }
 
-function pickServer() {
-  const healthy = pool.filter(isHealthy);
-  if (healthy.length === 0) return null;
-  const server = healthy[rrIndex % healthy.length];
-  rrIndex = (rrIndex + 1) % healthy.length;
-  return server;
+function recordYouTubeBlock(url) {
+  ytBlocks.set(url, { blockedUntil: Date.now() + YT_BLOCK_COOLDOWN });
+  logger.warn('Proxy IP YouTube-blocked for 5min', url);
 }
+
+// ---- YouTube block detection ----
+
+function isYouTubeBlock(data) {
+  // HTTP-level blocks
+  if (data.status === 429 || data.status === 403) return true;
+
+  // Content-level blocks (consent page, bot detection)
+  if (typeof data.body === 'string') {
+    const body = data.body.toLowerCase();
+    if (
+      body.includes('consent.youtube.com') ||
+      body.includes('sign in to confirm') ||
+      body.includes('before you continue')
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+// ---- Public API ----
 
 /**
  * Check if proxy pool is configured
  */
 export function isProxyConfigured() {
   return pool.length > 0;
+}
+
+/**
+ * Check if the gateway's own direct IP is YouTube-blocked.
+ * Endpoints should skip direct fetch and go straight to proxy when true.
+ */
+export function isDirectBlocked() {
+  if (Date.now() >= directBlock.blockedUntil) return false;
+  return true;
+}
+
+/**
+ * Record that the gateway's direct IP got blocked by YouTube.
+ * Called by endpoints when direct fetch returns 429/403.
+ */
+export function recordDirectBlock() {
+  directBlock.blockedUntil = Date.now() + YT_BLOCK_COOLDOWN;
+  logger.warn('Direct IP YouTube-blocked for 5min', `Cooldown until ${new Date(directBlock.blockedUntil).toLocaleTimeString()}`);
+}
+
+/**
+ * Detect if a fetch response indicates a YouTube block.
+ * Endpoints can use this to check direct fetch responses.
+ */
+export function isYouTubeBlockResponse(status, body) {
+  if (status === 429 || status === 403) return true;
+  if (typeof body === 'string') {
+    const lower = body.toLowerCase();
+    if (
+      lower.includes('consent.youtube.com') ||
+      lower.includes('sign in to confirm') ||
+      lower.includes('before you continue')
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -98,8 +175,13 @@ export async function proxyFetch(url, headers = {}) {
       logger.success('Proxy fetch succeeded', `${server} | hop: ${hop}/${healthy.length}`);
       return { ...result, hops: hop };
     } catch (error) {
-      recordFailure(server);
-      logger.warn('Proxy hop failed', `${server} | hop: ${hop}/${healthy.length} | ${error.message}`);
+      if (error.isYouTubeBlock) {
+        recordYouTubeBlock(server);
+        logger.warn('YouTube blocked proxy IP', `${server} | hop: ${hop}/${healthy.length} | status: ${error.ytStatus}`);
+      } else {
+        recordFailure(server);
+        logger.warn('Proxy hop failed', `${server} | hop: ${hop}/${healthy.length} | ${error.message}`);
+      }
       lastError = error;
     }
   }
@@ -134,6 +216,14 @@ async function fetchFromServer(server, url, headers) {
 
   const data = await response.json();
 
+  // Detect YouTube blocks from the proxied response
+  if (isYouTubeBlock(data)) {
+    const err = new Error(`YouTube blocked proxy IP (status: ${data.status})`);
+    err.isYouTubeBlock = true;
+    err.ytStatus = data.status;
+    throw err;
+  }
+
   if (!data.body && data.status !== 200) {
     throw new Error(`Proxied request failed with status ${data.status}`);
   }
@@ -143,15 +233,46 @@ async function fetchFromServer(server, url, headers) {
 
 /**
  * Legacy wrapper for backward compatibility.
- * Falls back to proxy pool when direct fetch fails.
- * The function `fn` is called with no arguments (direct fetch).
  */
 export async function withProxy(fn) {
   return fn();
 }
 
+/**
+ * Return health info for each proxy in the pool (for /api/status).
+ */
+export function getProxyHealth() {
+  return pool.map(url => {
+    const block = ytBlocks.get(url);
+    const entry = health.get(url);
+    return {
+      url,
+      healthy: isHealthy(url),
+      failures: entry?.failures || 0,
+      unhealthyUntil: entry?.unhealthyUntil || 0,
+      ytBlocked: block ? Date.now() < block.blockedUntil : false,
+      ytBlockedUntil: block?.blockedUntil || 0,
+    };
+  });
+}
+
+/**
+ * Return direct IP block status (for /api/status).
+ */
+export function getDirectBlockStatus() {
+  return {
+    blocked: isDirectBlocked(),
+    blockedUntil: directBlock.blockedUntil,
+  };
+}
+
 export default {
   isProxyConfigured,
   proxyFetch,
-  withProxy
+  withProxy,
+  getProxyHealth,
+  getDirectBlockStatus,
+  isDirectBlocked,
+  recordDirectBlock,
+  isYouTubeBlockResponse
 };

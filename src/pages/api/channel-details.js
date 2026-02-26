@@ -1,5 +1,6 @@
 import logger from "@/utils/logger";
 import cache, { TTL } from '@/utils/cache';
+import { cacheGet, cacheSet } from '@/utils/redis-cache';
 import { getInnertube, resolveChannelId } from "@/utils/innertube";
 
 /**
@@ -34,7 +35,7 @@ export default async function handler(req, res) {
 
   // Check cache first
   const cacheKey = cache.generateKey('channel-details', { id });
-  const cached = cache.get(cacheKey);
+  const cached = await cacheGet(cacheKey);
   if (cached) {
     logger.info(`Cache hit for channel ${id}`);
     return res.status(200).json(cached);
@@ -150,7 +151,7 @@ export default async function handler(req, res) {
     logger.success(`Channel details retrieved successfully`, `Channel: ${id}`);
 
     // Cache the response
-    cache.set(cacheKey, channelData, TTL.CHANNEL_DETAILS);
+    await cacheSet(cacheKey, channelData, TTL.CHANNEL_DETAILS);
 
     return res.status(200).json(channelData);
   } catch (error) {

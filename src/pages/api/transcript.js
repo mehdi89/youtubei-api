@@ -1,5 +1,6 @@
 import logger from "@/utils/logger";
 import cache, { TTL } from '@/utils/cache';
+import { cacheGet, cacheSet } from '@/utils/redis-cache';
 import {
   getInnertube,
   resetInnertube,
@@ -7,7 +8,7 @@ import {
   selectBestLanguage,
   HIGH_CONFIDENCE_LANGUAGES
 } from '@/utils/innertube';
-import { proxyFetch, isProxyConfigured } from '@/utils/proxy';
+import { proxyFetch, isProxyConfigured, isDirectBlocked, recordDirectBlock, isYouTubeBlockResponse } from '@/utils/proxy';
 
 /**
  * Fetch transcript using youtubei.js caption URL directly
@@ -51,37 +52,43 @@ async function fetchTranscriptWithInnerTube(videoId, langCode = null, existingIn
 
     const json3Url = captionUrl + '&fmt=json3';
 
-    let captionData;
-    try {
-      // Try direct fetch first (json3 URLs don't need innertube session auth)
-      const response = await fetch(json3Url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Referer': `https://www.youtube.com/watch?v=${videoId}`,
-          'Origin': 'https://www.youtube.com'
-        }
-      });
-      if (!response.ok) {
-        throw new Error(`Caption fetch failed: ${response.status}`);
-      }
-      captionData = await response.json();
-    } catch (fetchError) {
-      // Fallback to proxy pool if configured
-      if (!isProxyConfigured()) {
-        logger.warn(`youtubei.js: Direct fetch failed, no proxy available`, `Video: ${videoId}`);
-        return { success: false, error: fetchError.message };
-      }
+    const captionHeaders = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Referer': `https://www.youtube.com/watch?v=${videoId}`,
+      'Origin': 'https://www.youtube.com'
+    };
 
-      logger.warn(`youtubei.js: Direct fetch failed, trying proxy pool`, `Video: ${videoId}`);
+    let captionData;
+
+    // Try direct fetch first (skip if our IP is YouTube-blocked)
+    if (!isDirectBlocked()) {
+      try {
+        const response = await fetch(json3Url, { headers: captionHeaders });
+        if (isYouTubeBlockResponse(response.status)) {
+          recordDirectBlock();
+          throw new Error(`YouTube blocked direct IP (${response.status})`);
+        }
+        if (!response.ok) {
+          throw new Error(`Caption fetch failed: ${response.status}`);
+        }
+        captionData = await response.json();
+      } catch (fetchError) {
+        logger.warn(`Direct fetch failed`, `Video: ${videoId} | ${fetchError.message}`);
+      }
+    } else {
+      logger.info(`Skipping direct fetch (IP blocked)`, `Video: ${videoId}`);
+    }
+
+    // Fallback to proxy pool
+    if (!captionData) {
+      if (!isProxyConfigured()) {
+        logger.warn(`No proxy available`, `Video: ${videoId}`);
+        return { success: false, error: 'Direct fetch failed and no proxy configured' };
+      }
 
       try {
-        const proxyResult = await proxyFetch(json3Url, {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Referer': `https://www.youtube.com/watch?v=${videoId}`,
-          'Origin': 'https://www.youtube.com'
-        });
+        const proxyResult = await proxyFetch(json3Url, captionHeaders);
         logger.info(`Proxy succeeded after ${proxyResult.hops} hop(s)`, `Video: ${videoId}`);
         captionData = JSON.parse(proxyResult.body);
       } catch (proxyError) {
@@ -175,7 +182,7 @@ export default async function handler(req, res) {
 
   // Check cache first (include lang in cache key if specified)
   const cacheKey = cache.generateKey('transcript', { id, type: type || 'regular', ...(lang && { lang }) });
-  const cached = cache.get(cacheKey);
+  const cached = await cacheGet(cacheKey);
   if (cached) {
     logger.info(`Cache hit for transcript ${id}`);
     return res.status(200).json(cached);
@@ -243,7 +250,7 @@ export default async function handler(req, res) {
 
     // Cache the response
     const response = { data };
-    cache.set(cacheKey, response, TTL.TRANSCRIPT);
+    await cacheSet(cacheKey, response, TTL.TRANSCRIPT);
 
     res.status(200).json(response);
   } catch (error) {

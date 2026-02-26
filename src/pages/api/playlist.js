@@ -1,5 +1,6 @@
 import logger from "@/utils/logger";
 import cache, { TTL } from '@/utils/cache';
+import { cacheGet, cacheSet } from '@/utils/redis-cache';
 import { getInnertube } from "@/utils/innertube";
 
 /**
@@ -35,7 +36,7 @@ export default async function handler(req, res) {
 
   // Check cache first
   const cacheKey = cache.generateKey('playlist', { id, page, includeMetadata });
-  const cached = cache.get(cacheKey);
+  const cached = await cacheGet(cacheKey);
   if (cached) {
     logger.info(`Cache hit for playlist ${id}`);
     return res.status(200).json(cached);
@@ -96,14 +97,14 @@ export default async function handler(req, res) {
       };
 
       // Cache the response
-      cache.set(cacheKey, response, TTL.PLAYLIST);
+      await cacheSet(cacheKey, response, TTL.PLAYLIST);
 
       return res.status(200).json(response);
     }
 
     // Backwards compatible: just return array of videos
     // Cache the response
-    cache.set(cacheKey, items, TTL.PLAYLIST);
+    await cacheSet(cacheKey, items, TTL.PLAYLIST);
 
     return res.status(200).json(items);
   } catch (error) {

@@ -1,5 +1,6 @@
 import logger from "@/utils/logger";
 import cache, { TTL } from '@/utils/cache';
+import { cacheGet, cacheSet } from '@/utils/redis-cache';
 import { getInnertube } from "@/utils/innertube";
 
 /**
@@ -50,7 +51,7 @@ export default async function handler(req, res) {
 
   // Check cache first
   const cacheKey = cache.generateKey('search', { query, type, page, sortBy, duration, uploadDate });
-  const cached = cache.get(cacheKey);
+  const cached = await cacheGet(cacheKey);
   if (cached) {
     logger.info(`Cache hit for search "${query}"`);
     return res.status(200).json(cached);
@@ -130,7 +131,7 @@ export default async function handler(req, res) {
     logger.success(`Found ${items.length} ${type}s`, `Query: "${query}" | Page: ${page}`);
 
     // Cache the response
-    cache.set(cacheKey, items, TTL.SEARCH);
+    await cacheSet(cacheKey, items, TTL.SEARCH);
 
     res.status(200).json(items);
   } catch (error) {

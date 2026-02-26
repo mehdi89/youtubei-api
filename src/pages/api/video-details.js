@@ -6,7 +6,8 @@ import {
   HIGH_CONFIDENCE_LANGUAGES
 } from '@/utils/innertube';
 import cache, { TTL } from '@/utils/cache';
-import { proxyFetch, isProxyConfigured } from '@/utils/proxy';
+import { cacheGet, cacheSet } from '@/utils/redis-cache';
+import { proxyFetch, isProxyConfigured, isDirectBlocked, recordDirectBlock, isYouTubeBlockResponse } from '@/utils/proxy';
 
 // Get API key from environment variables
 const API_KEY = process.env.YOUTUBE_API_KEY;
@@ -37,7 +38,7 @@ export default async function handler(req, res) {
 
   // Check cache first
   const cacheKey = cache.generateKey('video-details', { id, includeTranscript, includeTimestamped });
-  const cached = cache.get(cacheKey);
+  const cached = await cacheGet(cacheKey);
   if (cached) {
     logger.info(`Cache hit for video ${id}`);
     return res.status(200).json(cached);
@@ -53,7 +54,7 @@ export default async function handler(req, res) {
     if (includeTranscript || includeTimestamped) {
       // Check transcript cache separately (longer TTL)
       const transcriptCacheKey = cache.generateKey('transcript', { id, timestamped: includeTimestamped });
-      const cachedTranscript = cache.get(transcriptCacheKey);
+      const cachedTranscript = await cacheGet(transcriptCacheKey);
 
       if (cachedTranscript) {
         logger.info(`Cache hit for transcript ${id}`);
@@ -72,14 +73,14 @@ export default async function handler(req, res) {
         }
 
         // Cache transcript result
-        cache.set(transcriptCacheKey, { transcript, timestampedTranscript }, TTL.TRANSCRIPT);
+        await cacheSet(transcriptCacheKey, { transcript, timestampedTranscript }, TTL.TRANSCRIPT);
       }
     }
 
     const response = formatResponse(video, transcript, timestampedTranscript, includeTranscript, includeTimestamped);
 
     // Cache the full response
-    cache.set(cacheKey, response, TTL.VIDEO_DETAILS);
+    await cacheSet(cacheKey, response, TTL.VIDEO_DETAILS);
 
     logger.success(`Processed video ${id}`, `Title: ${video.title}`);
     res.status(200).json(response);
@@ -212,26 +213,38 @@ async function fetchTranscriptWithInnerTube(videoId) {
       return { success: false, error: 'No caption URL' };
     }
 
-    // Use the innertube's http client to make the request (includes proper auth)
-    // If that fails, fallback to direct fetch with proxy
+    const captionHeaders = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Referer': `https://www.youtube.com/watch?v=${videoId}`
+    };
+
+    // Try direct fetch first (skip if our IP is YouTube-blocked)
     let xml;
-    try {
-      const response = await yt.session.http.fetch(captionUrl);
-      xml = await response.text();
-    } catch (fetchError) {
-      // Fallback to proxy pool if configured
+    if (!isDirectBlocked()) {
+      try {
+        const response = await yt.session.http.fetch(captionUrl);
+        const body = await response.text();
+        if (isYouTubeBlockResponse(response.status, body)) {
+          recordDirectBlock();
+          throw new Error(`YouTube blocked direct IP (${response.status})`);
+        }
+        xml = body;
+      } catch (fetchError) {
+        logger.warn(`Direct caption fetch failed`, `Video: ${videoId} | ${fetchError.message}`);
+      }
+    } else {
+      logger.info(`Skipping direct fetch (IP blocked)`, `Video: ${videoId}`);
+    }
+
+    // Fallback to proxy pool
+    if (!xml) {
       if (!isProxyConfigured()) {
-        return { success: false, error: fetchError.message };
+        return { success: false, error: 'Direct fetch failed and no proxy configured' };
       }
 
-      logger.info('Using proxy pool for caption fetch', `Video: ${videoId}`);
-
       try {
-        const proxyResult = await proxyFetch(captionUrl, {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Referer': `https://www.youtube.com/watch?v=${videoId}`
-        });
+        const proxyResult = await proxyFetch(captionUrl, captionHeaders);
         logger.info(`Proxy succeeded after ${proxyResult.hops} hop(s)`, `Video: ${videoId}`);
         xml = proxyResult.body;
       } catch (proxyError) {
@@ -300,26 +313,39 @@ async function fetchTranscriptWithInnerTubeTimestamped(info, videoId, langCode =
       return { success: false, error: 'No caption URL' };
     }
 
-    // Use the innertube's http client to make the request
     const yt = await getInnertube();
+    const captionHeaders = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Referer': `https://www.youtube.com/watch?v=${videoId}`
+    };
+
+    // Try direct fetch first (skip if our IP is YouTube-blocked)
     let xml;
-    try {
-      const response = await yt.session.http.fetch(captionUrl);
-      xml = await response.text();
-    } catch (fetchError) {
-      // Fallback to proxy pool if configured
+    if (!isDirectBlocked()) {
+      try {
+        const response = await yt.session.http.fetch(captionUrl);
+        const body = await response.text();
+        if (isYouTubeBlockResponse(response.status, body)) {
+          recordDirectBlock();
+          throw new Error(`YouTube blocked direct IP (${response.status})`);
+        }
+        xml = body;
+      } catch (fetchError) {
+        logger.warn(`Direct caption fetch failed`, `Video: ${videoId} | ${fetchError.message}`);
+      }
+    } else {
+      logger.info(`Skipping direct fetch (IP blocked)`, `Video: ${videoId}`);
+    }
+
+    // Fallback to proxy pool
+    if (!xml) {
       if (!isProxyConfigured()) {
-        return { success: false, error: fetchError.message };
+        return { success: false, error: 'Direct fetch failed and no proxy configured' };
       }
 
-      logger.info('Using proxy pool for caption fetch', `Video: ${videoId}`);
-
       try {
-        const proxyResult = await proxyFetch(captionUrl, {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Referer': `https://www.youtube.com/watch?v=${videoId}`
-        });
+        const proxyResult = await proxyFetch(captionUrl, captionHeaders);
         logger.info(`Proxy succeeded after ${proxyResult.hops} hop(s)`, `Video: ${videoId}`);
         xml = proxyResult.body;
       } catch (proxyError) {
