@@ -1,6 +1,7 @@
 import logger from "@/utils/logger";
 import {
   getInnertube,
+  resetInnertube,
   decodeEntities,
   selectBestLanguage,
   HIGH_CONFIDENCE_LANGUAGES
@@ -207,8 +208,16 @@ async function fetchVideo(id) {
  */
 async function fetchTranscriptWithInnerTube(videoId) {
   try {
-    const yt = await getInnertube();
-    const info = await yt.getInfo(videoId);
+    let yt = await getInnertube();
+    let info = await yt.getInfo(videoId);
+
+    // Stale session retry: if no captions found, reset session and try once more
+    if (info && !info.captions) {
+      logger.info(`No captions on first try, retrying with fresh session`, `Video: ${videoId}`);
+      resetInnertube();
+      yt = await getInnertube();
+      info = await yt.getInfo(videoId);
+    }
 
     if (!info || !info.captions) {
       return { success: false, error: 'No captions available', hasCaptionsObject: false, hasTrack: false };
@@ -453,8 +462,16 @@ async function fetchTimestampedTranscript(videoId) {
     let availableLangCodes = [];
 
     // Get available languages from youtubei.js
-    const yt = await getInnertube();
-    const info = await yt.getInfo(videoId);
+    let yt = await getInnertube();
+    let info = await yt.getInfo(videoId);
+
+    // Stale session retry: if no captions found, reset session and try once more
+    if (info && !info.captions) {
+      logger.info(`No captions on first try, retrying with fresh session`, `Video: ${videoId}`);
+      resetInnertube();
+      yt = await getInnertube();
+      info = await yt.getInfo(videoId);
+    }
 
     if (info?.captions?.caption_tracks) {
       availableLangCodes = info.captions.caption_tracks
