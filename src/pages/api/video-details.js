@@ -444,7 +444,13 @@ async function fetchTranscript(video, videoId) {
       return { available: false, reason: 'processing', retriable: true };
     }
 
-    // No captions system at all - video genuinely has no CC
+    // No captions system at all
+    // But if video was a live stream (has startTimestamp), YouTube may still be processing VOD captions
+    if (video.startTimestamp) {
+      logger.info(`No transcript yet - past live stream, may still be processing`, `Video: ${videoId}`);
+      return { available: false, reason: 'processing', retriable: true };
+    }
+
     logger.info(`No transcript - No captions`, `Video: ${videoId}`);
     return { available: false, reason: 'no_captions', retriable: false };
   } catch (error) {
