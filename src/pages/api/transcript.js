@@ -21,13 +21,13 @@ async function fetchTranscriptWithInnerTube(videoId, langCode = null, existingIn
 
     if (!info || !info.captions) {
       logger.warn(`youtubei.js: No captions object`, `Video: ${videoId}`);
-      return { success: false, error: 'No captions available' };
+      return { success: false, error: 'No captions available', hasCaptionsObject: false, hasTrack: false };
     }
 
     const captionTracks = info.captions.caption_tracks || [];
     if (captionTracks.length === 0) {
       logger.warn(`youtubei.js: No caption tracks`, `Video: ${videoId}`);
-      return { success: false, error: 'No caption tracks' };
+      return { success: false, error: 'No caption tracks', hasCaptionsObject: true, hasTrack: false };
     }
 
     // Find the best caption track
@@ -47,7 +47,7 @@ async function fetchTranscriptWithInnerTube(videoId, langCode = null, existingIn
     const captionUrl = track.base_url;
     if (!captionUrl) {
       logger.warn(`youtubei.js: No base_url in track`, `Video: ${videoId}`);
-      return { success: false, error: 'No caption URL' };
+      return { success: false, error: 'No caption URL', hasCaptionsObject: true, hasTrack: true };
     }
 
     const json3Url = captionUrl + '&fmt=json3';
@@ -84,7 +84,7 @@ async function fetchTranscriptWithInnerTube(videoId, langCode = null, existingIn
     if (!captionData) {
       if (!isProxyConfigured()) {
         logger.warn(`No proxy available`, `Video: ${videoId}`);
-        return { success: false, error: 'Direct fetch failed and no proxy configured' };
+        return { success: false, error: 'Direct fetch failed and no proxy configured', hasCaptionsObject: true, hasTrack: true };
       }
 
       try {
@@ -93,13 +93,13 @@ async function fetchTranscriptWithInnerTube(videoId, langCode = null, existingIn
         captionData = JSON.parse(proxyResult.body);
       } catch (proxyError) {
         logger.warn(`Proxy failed after all hops`, `Video: ${videoId} | Error: ${proxyError.message}`);
-        return { success: false, error: proxyError.message };
+        return { success: false, error: proxyError.message, hasCaptionsObject: true, hasTrack: true };
       }
     }
 
     if (!captionData) {
       logger.warn(`youtubei.js: No caption data received`, `Video: ${videoId}`);
-      return { success: false, error: 'Caption fetch failed' };
+      return { success: false, error: 'Caption fetch failed', hasCaptionsObject: true, hasTrack: true };
     }
 
     // Parse json3 format: { events: [{ tStartMs, dDurationMs, segs: [{ utf8 }] }] }
@@ -120,14 +120,14 @@ async function fetchTranscriptWithInnerTube(videoId, langCode = null, existingIn
 
     if (entries.length === 0) {
       logger.warn(`youtubei.js: No text extracted from json3`, `Video: ${videoId}`);
-      return { success: false, error: 'No transcript text found' };
+      return { success: false, error: 'Transcript content empty (processing)', hasCaptionsObject: true, hasTrack: true };
     }
 
     logger.success(`youtubei.js: Got ${entries.length} entries`, `Video: ${videoId}`);
     return { success: true, entries };
   } catch (error) {
     logger.error(`youtubei.js fallback failed`, `Video: ${videoId} | Error: ${error.message}`);
-    return { success: false, error: error.message };
+    return { success: false, error: error.message, hasCaptionsObject: false, hasTrack: false };
   }
 }
 
@@ -167,7 +167,7 @@ export default async function handler(req, res) {
     return res.status(405).end();
   }
 
-  const { id, type, lang } = req.body;
+  const { id, type, lang, force = false } = req.body;
   const apiKey = req.headers['api-key'];
 
   if (apiKey !== process.env.YOUTUBE_API_KEY) {
@@ -180,12 +180,20 @@ export default async function handler(req, res) {
     return res.status(400).json({ message: 'Video ID is required' });
   }
 
-  // Check cache first (include lang in cache key if specified)
+  // Check cache first (include lang in cache key if specified, skip if force=true)
   const cacheKey = cache.generateKey('transcript', { id, type: type || 'regular', ...(lang && { lang }) });
-  const cached = await cacheGet(cacheKey);
-  if (cached) {
-    logger.info(`Cache hit for transcript ${id}`);
-    return res.status(200).json(cached);
+  if (!force) {
+    const cached = await cacheGet(cacheKey);
+    if (cached) {
+      if (cached.unavailable) {
+        logger.info(`Cache hit (unavailable) for transcript ${id} - will retry after TTL`);
+        return res.status(404).json({ message: cached.reason, retriable: cached.retriable || false });
+      }
+      logger.info(`Cache hit for transcript ${id}`);
+      return res.status(200).json(cached);
+    }
+  } else {
+    logger.info(`Force refresh for transcript ${id} - skipping cache`);
   }
 
   let selectedLang = null;
@@ -227,7 +235,10 @@ export default async function handler(req, res) {
     // Use youtubei.js directly for transcript fetching
     const result = await fetchTranscriptWithInnerTube(id, selectedLang, info);
     if (!result.success) {
-      throw new Error(result.error || 'No transcripts available');
+      const err = new Error(result.error || 'No transcripts available');
+      err.hasCaptionsObject = result.hasCaptionsObject;
+      err.hasTrack = result.hasTrack;
+      throw err;
     }
 
     const transcript = result.entries;
@@ -258,16 +269,23 @@ export default async function handler(req, res) {
       'No captions available',
       'No caption tracks',
       'No transcript text found',
+      'Transcript content empty',
       'Transcript is disabled',
     ];
     const isNoCaptions = noCaptionsErrors.some(msg => error.message?.includes(msg));
 
     if (isNoCaptions) {
-      logger.info(`No captions for video`, `Video: ${id} | Reason: ${error.message}`);
-      return res.status(404).json({ message: error.message });
+      // Determine if retriable based on what YouTube returned
+      const retriable = !!(error.hasCaptionsObject || error.hasTrack);
+      const reason = retriable ? 'processing' : (error.message?.includes('disabled') ? 'disabled' : 'no_captions');
+      const cacheTTL = retriable ? TTL.TRANSCRIPT_UNAVAILABLE : TTL.VIDEO_DETAILS;
+
+      logger.info(`No captions for video`, `Video: ${id} | Reason: ${reason} | Retriable: ${retriable}`);
+      await cacheSet(cacheKey, { data: null, unavailable: true, reason, retriable }, cacheTTL);
+      return res.status(404).json({ message: error.message, reason, retriable });
     }
 
     logger.error(`Failed to fetch transcript`, `Video: ${id} | Error: ${error.message}`);
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: error.message, retriable: true });
   }
 }

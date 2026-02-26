@@ -118,6 +118,7 @@ const cache = new Cache();
 export const TTL = {
   VIDEO_DETAILS: 60 * 60,      // 1 hour
   TRANSCRIPT: 60 * 60 * 24,    // 24 hours (transcripts rarely change)
+  TRANSCRIPT_UNAVAILABLE: 60 * 5, // 5 minutes (retry soon - YouTube may still be processing)
   SEARCH: 60 * 5,              // 5 minutes (search results change)
   CHANNEL_DETAILS: 60 * 60,    // 1 hour
   CHANNEL_VIDEOS: 60 * 15,     // 15 minutes
