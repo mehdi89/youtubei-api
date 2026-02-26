@@ -236,10 +236,11 @@ async function fetchTranscriptWithInnerTube(videoId) {
     };
 
     // Try direct fetch first (skip if our IP is YouTube-blocked)
+    // Use global fetch() - NOT yt.session.http.fetch() which prepends InnerTube base URL
     let xml;
     if (!isDirectBlocked()) {
       try {
-        const response = await yt.session.http.fetch(captionUrl);
+        const response = await fetch(captionUrl, { headers: captionHeaders });
         const body = await response.text();
         if (isYouTubeBlockResponse(response.status, body)) {
           recordDirectBlock();
@@ -329,7 +330,6 @@ async function fetchTranscriptWithInnerTubeTimestamped(info, videoId, langCode =
       return { success: false, error: 'No caption URL' };
     }
 
-    const yt = await getInnertube();
     const captionHeaders = {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       'Accept-Language': 'en-US,en;q=0.9',
@@ -337,10 +337,11 @@ async function fetchTranscriptWithInnerTubeTimestamped(info, videoId, langCode =
     };
 
     // Try direct fetch first (skip if our IP is YouTube-blocked)
+    // Use global fetch() - NOT yt.session.http.fetch() which prepends InnerTube base URL
     let xml;
     if (!isDirectBlocked()) {
       try {
-        const response = await yt.session.http.fetch(captionUrl);
+        const response = await fetch(captionUrl, { headers: captionHeaders });
         const body = await response.text();
         if (isYouTubeBlockResponse(response.status, body)) {
           recordDirectBlock();
