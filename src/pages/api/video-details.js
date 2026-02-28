@@ -7,7 +7,7 @@ import {
 } from '@/utils/innertube';
 import cache, { TTL } from '@/utils/cache';
 import { cacheGet, cacheSet } from '@/utils/redis-cache';
-import { proxyFetch, isProxyConfigured, isDirectBlocked, recordDirectBlock, isYouTubeBlockResponse } from '@/utils/proxy';
+import { proxyFetch, isProxyConfigured, isDirectBlocked, recordDirectBlock, isYouTubeBlockResponse, keepAliveAgent } from '@/utils/proxy';
 
 // Get API key from environment variables
 const API_KEY = process.env.YOUTUBE_API_KEY;
@@ -67,11 +67,20 @@ export default async function handler(req, res) {
         timestampedTranscript = cachedTranscript.timestampedTranscript;
       } else {
         if (includeTimestamped) {
-          timestampedTranscript = await fetchTimestampedTranscript(id, video._captions);
-          if (!includeTranscript && timestampedTranscript.available) {
-            transcript = { available: true, content: timestampedTranscript.regular_content };
+          if (includeTranscript) {
+            // Both requested — fetch in parallel (both reuse video._captions)
+            const [ts, tr] = await Promise.all([
+              fetchTimestampedTranscript(id, video._captions),
+              fetchTranscript(video, id)
+            ]);
+            timestampedTranscript = ts;
+            transcript = tr;
           } else {
-            transcript = await fetchTranscript(video, id);
+            // Only timestamped
+            timestampedTranscript = await fetchTimestampedTranscript(id, video._captions);
+            if (timestampedTranscript.available) {
+              transcript = { available: true, content: timestampedTranscript.regular_content };
+            }
           }
         } else {
           transcript = await fetchTranscript(video, id);
@@ -240,7 +249,7 @@ async function fetchTranscriptWithInnerTube(videoId, captions = null) {
     let xml;
     if (!isDirectBlocked()) {
       try {
-        const response = await fetch(captionUrl, { headers: captionHeaders });
+        const response = await fetch(captionUrl, { headers: captionHeaders, dispatcher: keepAliveAgent });
         const body = await response.text();
         if (isYouTubeBlockResponse(response.status, body)) {
           recordDirectBlock();
@@ -341,7 +350,7 @@ async function fetchTranscriptWithInnerTubeTimestamped(captions, videoId, langCo
     let xml;
     if (!isDirectBlocked()) {
       try {
-        const response = await fetch(captionUrl, { headers: captionHeaders });
+        const response = await fetch(captionUrl, { headers: captionHeaders, dispatcher: keepAliveAgent });
         const body = await response.text();
         if (isYouTubeBlockResponse(response.status, body)) {
           recordDirectBlock();

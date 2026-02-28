@@ -9,40 +9,74 @@ import logger from './logger';
 // Suppress youtubei.js parser warnings (they're non-fatal)
 Log.setLevel(Log.Level.NONE);
 
-// Singleton Innertube instance (reused across requests)
-let innertubeInstance = null;
-let innertubeCreatedAt = 0;
+// Pool of Innertube instances (round-robin to avoid blocking during refresh)
+const POOL_SIZE = 3;
+const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
-// Refresh session every 30 minutes to prevent stale sessions
-const SESSION_TTL_MS = 30 * 60 * 1000;
+const pool = Array.from({ length: POOL_SIZE }, () => ({
+  instance: null,
+  createdAt: 0,
+  refreshing: null, // Promise while refreshing, null otherwise
+}));
+let rrIndex = 0;
 
 /**
- * Get or create a singleton Innertube instance.
- * Automatically refreshes if the session is older than SESSION_TTL_MS.
+ * Refresh a single pool slot, returning the new instance.
+ * Concurrent callers on the same slot share the same promise.
+ */
+async function refreshSlot(slot) {
+  if (slot.refreshing) return slot.refreshing;
+  slot.refreshing = (async () => {
+    logger.info(`Creating new Innertube instance (slot ${pool.indexOf(slot)})`);
+    const instance = await Innertube.create({ generate_session_locally: true });
+    slot.instance = instance;
+    slot.createdAt = Date.now();
+    slot.refreshing = null;
+    return instance;
+  })();
+  return slot.refreshing;
+}
+
+/**
+ * Get an Innertube instance from the pool using round-robin.
+ * If the selected slot is stale or refreshing, try the next slot.
  * @returns {Promise<Innertube>}
  */
 export async function getInnertube() {
   const now = Date.now();
-  if (innertubeInstance && (now - innertubeCreatedAt) > SESSION_TTL_MS) {
-    logger.info(`Innertube session expired (age: ${Math.round((now - innertubeCreatedAt) / 60000)}min), refreshing`);
-    innertubeInstance = null;
+  const startIdx = rrIndex;
+
+  for (let i = 0; i < POOL_SIZE; i++) {
+    const idx = (startIdx + i) % POOL_SIZE;
+    const slot = pool[idx];
+
+    // If this slot has a valid, non-stale instance, use it
+    if (slot.instance && (now - slot.createdAt) <= SESSION_TTL_MS) {
+      rrIndex = (idx + 1) % POOL_SIZE;
+      return slot.instance;
+    }
+
+    // If stale but not currently refreshing, trigger background refresh and try next slot
+    if (!slot.refreshing && slot.instance) {
+      refreshSlot(slot); // fire-and-forget
+    }
   }
-  if (!innertubeInstance) {
-    logger.info('Creating new Innertube instance');
-    innertubeInstance = await Innertube.create({
-      generate_session_locally: true,
-    });
-    innertubeCreatedAt = Date.now();
-  }
-  return innertubeInstance;
+
+  // All slots are stale or empty — must wait for one
+  const slot = pool[startIdx % POOL_SIZE];
+  rrIndex = (startIdx + 1) % POOL_SIZE;
+  return refreshSlot(slot);
 }
 
 /**
- * Reset the Innertube instance (useful for testing or error recovery)
+ * Reset all Innertube instances (useful for testing or error recovery)
  */
 export function resetInnertube() {
-  innertubeInstance = null;
-  innertubeCreatedAt = 0;
+  for (const slot of pool) {
+    slot.instance = null;
+    slot.createdAt = 0;
+    slot.refreshing = null;
+  }
 }
 
 /**

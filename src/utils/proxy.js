@@ -15,6 +15,14 @@
  */
 
 import logger from './logger.js';
+import { Agent } from 'undici';
+
+// Shared keep-alive agent for outbound HTTP requests (saves TCP handshake per request)
+export const keepAliveAgent = new Agent({
+  keepAliveTimeout: 30_000,
+  keepAliveMaxTimeout: 60_000,
+  connections: 10,
+});
 
 const PROXY_SERVERS = (process.env.PROXY_SERVERS || '')
   .split(',')
