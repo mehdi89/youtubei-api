@@ -167,6 +167,19 @@ async function fetchVideo(id) {
       }
     }
 
+    // Detect silent/no-audio videos via loudness metadata
+    // YouTube reports loudness_db ≈ -9986 for silent audio tracks; real audio is > -100
+    let hasAudio = true;
+    const adaptiveFormats = info.streaming_data?.adaptive_formats || [];
+    const audioFormats = adaptiveFormats.filter(f => f.mime_type?.startsWith('audio/'));
+    if (audioFormats.length > 0) {
+      const maxLoudness = Math.max(...audioFormats.map(f => f.loudness_db ?? 0));
+      if (maxLoudness <= -100) {
+        hasAudio = false;
+        logger.info(`No audio detected (loudness: ${maxLoudness} dB)`, `Video: ${id}`);
+      }
+    }
+
     // Build normalized video object
     const video = {
       id: basicInfo.id || id,
@@ -181,6 +194,7 @@ async function fetchVideo(id) {
       uploadDate: videoDetails?.published?.text || videoDetails?.relative_date?.text || null,
       channel: channel,
       chapters: chapters,
+      hasAudio: hasAudio,
       // Store captions info for transcript fetching
       _captions: info.captions,
       _hasCaption: basicInfo.has_captions || false,
@@ -457,6 +471,12 @@ async function fetchTranscript(video, videoId) {
       logger.info(`No transcript - past live stream ended >3h ago, likely no captions`, `Video: ${videoId}`);
     }
 
+    // Distinguish no-audio (silent video) from no-captions (has audio but no CC)
+    if (video.hasAudio === false) {
+      logger.info(`No transcript - No audio detected`, `Video: ${videoId}`);
+      return { available: false, reason: 'no_audio', retriable: false };
+    }
+
     logger.info(`No transcript - No captions`, `Video: ${videoId}`);
     return { available: false, reason: 'no_captions', retriable: false };
   } catch (error) {
@@ -555,6 +575,7 @@ function formatResponse(video, transcript, timestampedTranscript, includeTranscr
     likeCount: video.likeCount,
     isLiveContent: video.isLiveContent,
     isUpcoming: video.isUpcoming,
+    hasAudio: video.hasAudio,
     startTimestamp: video.startTimestamp,
     uploadDate: video.uploadDate,
     viewCount: video.viewCount,

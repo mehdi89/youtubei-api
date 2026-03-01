@@ -11,6 +11,19 @@ import {
 import { proxyFetch, isProxyConfigured, isDirectBlocked, recordDirectBlock, isYouTubeBlockResponse } from '@/utils/proxy';
 
 /**
+ * Detect if a video has no audio by checking loudness of audio formats.
+ * YouTube reports loudness_db ≈ -9986 for silent audio tracks; real audio is > -100.
+ */
+function detectHasAudio(info) {
+  if (!info?.streaming_data) return true; // assume audio if no streaming data
+  const audioFormats = (info.streaming_data.adaptive_formats || [])
+    .filter(f => f.mime_type?.startsWith('audio/'));
+  if (audioFormats.length === 0) return true; // no audio formats = can't determine, assume yes
+  const maxLoudness = Math.max(...audioFormats.map(f => f.loudness_db ?? 0));
+  return maxLoudness > -100;
+}
+
+/**
  * Fetch transcript using youtubei.js caption URL directly
  */
 async function fetchTranscriptWithInnerTube(videoId, langCode = null, existingInfo = null) {
@@ -198,10 +211,12 @@ export default async function handler(req, res) {
 
   let selectedLang = null;
   let availableLangCodes = [];
+  let videoInfo = null;
 
   try {
     // Get available languages and video info in one call
     let { langCodes, info } = await getTranscriptLanguages(id);
+    videoInfo = info;
     availableLangCodes = langCodes;
 
     // If no captions found, retry once with a fresh session (stale session fix)
@@ -211,6 +226,7 @@ export default async function handler(req, res) {
       const retry = await getTranscriptLanguages(id);
       langCodes = retry.langCodes;
       info = retry.info;
+      videoInfo = info;
       availableLangCodes = langCodes;
     }
 
@@ -277,7 +293,14 @@ export default async function handler(req, res) {
     if (isNoCaptions) {
       // Determine if retriable based on what YouTube returned
       const retriable = !!(error.hasCaptionsObject || error.hasTrack);
-      const reason = retriable ? 'processing' : (error.message?.includes('disabled') ? 'disabled' : 'no_captions');
+      let reason = retriable ? 'processing' : (error.message?.includes('disabled') ? 'disabled' : 'no_captions');
+
+      // If no captions and video has no audio, use more specific reason
+      if (reason === 'no_captions' && videoInfo && !detectHasAudio(videoInfo)) {
+        reason = 'no_audio';
+        logger.info(`No audio detected for video`, `Video: ${id}`);
+      }
+
       const cacheTTL = retriable ? TTL.TRANSCRIPT_UNAVAILABLE : TTL.VIDEO_DETAILS;
 
       logger.info(`No captions for video`, `Video: ${id} | Reason: ${reason} | Retriable: ${retriable}`);
