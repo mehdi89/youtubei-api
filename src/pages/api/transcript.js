@@ -3,7 +3,6 @@ import cache, { TTL } from '@/utils/cache';
 import { cacheGet, cacheSet } from '@/utils/redis-cache';
 import {
   getInnertube,
-  resetInnertube,
   decodeEntities,
   selectBestLanguage,
   HIGH_CONFIDENCE_LANGUAGES
@@ -218,17 +217,6 @@ export default async function handler(req, res) {
     let { langCodes, info } = await getTranscriptLanguages(id);
     videoInfo = info;
     availableLangCodes = langCodes;
-
-    // If no captions found, retry once with a fresh session (stale session fix)
-    if (availableLangCodes.length === 0 && info) {
-      logger.info(`No captions found, retrying with fresh session`, `Video: ${id}`);
-      resetInnertube();
-      const retry = await getTranscriptLanguages(id);
-      langCodes = retry.langCodes;
-      info = retry.info;
-      videoInfo = info;
-      availableLangCodes = langCodes;
-    }
 
     if (availableLangCodes.length > 0) {
       logger.info(`Available languages`, `Codes: ${availableLangCodes.join(', ')}`);
