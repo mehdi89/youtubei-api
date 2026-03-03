@@ -27,12 +27,18 @@ let rrIndex = 0;
 async function refreshSlot(slot) {
   if (slot.refreshing) return slot.refreshing;
   slot.refreshing = (async () => {
-    logger.info(`Creating new Innertube instance (slot ${pool.indexOf(slot)})`);
-    const instance = await Innertube.create({ generate_session_locally: true });
-    slot.instance = instance;
-    slot.createdAt = Date.now();
-    slot.refreshing = null;
-    return instance;
+    try {
+      logger.info(`Creating new Innertube instance (slot ${pool.indexOf(slot)})`);
+      const instance = await Innertube.create({ generate_session_locally: true });
+      slot.instance = instance;
+      slot.createdAt = Date.now();
+      return instance;
+    } catch (err) {
+      logger.error(`Failed to refresh Innertube slot ${pool.indexOf(slot)}: ${err.message}`);
+      throw err;
+    } finally {
+      slot.refreshing = null;
+    }
   })();
   return slot.refreshing;
 }
@@ -58,7 +64,7 @@ export async function getInnertube() {
 
     // If stale but not currently refreshing, trigger background refresh and try next slot
     if (!slot.refreshing && slot.instance) {
-      refreshSlot(slot); // fire-and-forget
+      refreshSlot(slot).catch(() => {}); // fire-and-forget, error already logged in refreshSlot
     }
   }
 
