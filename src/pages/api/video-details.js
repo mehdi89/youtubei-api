@@ -463,12 +463,12 @@ async function fetchTranscript(video, videoId) {
       const durationMs = (video.duration || 0) * 1000;
       const streamEnd = streamStart + durationMs;
       const timeSinceEnd = Date.now() - streamEnd;
-      const threeHours = 3 * 60 * 60 * 1000;
-      if (timeSinceEnd < threeHours) {
-        logger.info(`No transcript yet - stream ended <3h ago, may still be processing`, `Video: ${videoId}`);
+      const twelveHours = 12 * 60 * 60 * 1000;
+      if (timeSinceEnd < twelveHours) {
+        logger.info(`No transcript yet - stream ended <12h ago, may still be processing`, `Video: ${videoId}`);
         return { available: false, reason: 'processing', retriable: true };
       }
-      logger.info(`No transcript - past live stream ended >3h ago, likely no captions`, `Video: ${videoId}`);
+      logger.info(`No transcript - past live stream ended >12h ago, likely no captions`, `Video: ${videoId}`);
     }
 
     // Distinguish no-audio (silent video) from no-captions (has audio but no CC)
