@@ -167,6 +167,19 @@ async function fetchVideo(id) {
       }
     }
 
+    // Detect members-only / login-required videos via playability status
+    // YouTube returns metadata but status=LOGIN_REQUIRED for restricted content
+    const playabilityStatus = info.playability_status?.status || 'OK';
+    const playabilityReason = info.playability_status?.reason || null;
+    const isMembersOnly = playabilityStatus === 'LOGIN_REQUIRED' &&
+      (playabilityReason?.toLowerCase().includes('members') ||
+       playabilityReason?.toLowerCase().includes('join'));
+    const isUnplayable = playabilityStatus !== 'OK';
+
+    if (isUnplayable) {
+      logger.info(`Video not playable: ${playabilityStatus}`, `Video: ${id} | Reason: ${playabilityReason || 'unknown'}`);
+    }
+
     // Detect silent/no-audio videos via loudness metadata
     // YouTube reports loudness_db ≈ -9986 for silent audio tracks; real audio is > -100
     let hasAudio = true;
@@ -195,6 +208,9 @@ async function fetchVideo(id) {
       channel: channel,
       chapters: chapters,
       hasAudio: hasAudio,
+      isMembersOnly: isMembersOnly,
+      playabilityStatus: playabilityStatus,
+      playabilityReason: playabilityReason,
       // Store captions info for transcript fetching
       _captions: info.captions,
       _hasCaption: basicInfo.has_captions || false,
@@ -576,6 +592,9 @@ function formatResponse(video, transcript, timestampedTranscript, includeTranscr
     isLiveContent: video.isLiveContent,
     isUpcoming: video.isUpcoming,
     hasAudio: video.hasAudio,
+    isMembersOnly: video.isMembersOnly,
+    playabilityStatus: video.playabilityStatus,
+    playabilityReason: video.playabilityReason,
     startTimestamp: video.startTimestamp,
     uploadDate: video.uploadDate,
     viewCount: video.viewCount,
