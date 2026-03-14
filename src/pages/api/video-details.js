@@ -171,7 +171,7 @@ async function fetchVideo(id) {
     // YouTube returns metadata but status=LOGIN_REQUIRED for restricted content
     const playabilityStatus = info.playability_status?.status || 'OK';
     const playabilityReason = info.playability_status?.reason || null;
-    const isMembersOnly = playabilityStatus === 'LOGIN_REQUIRED' &&
+    const isMembersOnly = (playabilityStatus === 'LOGIN_REQUIRED' || playabilityStatus === 'UNPLAYABLE') &&
       (playabilityReason?.toLowerCase().includes('members') ||
        playabilityReason?.toLowerCase().includes('join'));
     const isUnplayable = playabilityStatus !== 'OK';
