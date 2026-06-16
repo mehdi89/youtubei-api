@@ -163,11 +163,33 @@ export async function resolveChannelId(yt, identifier) {
       }
     }
 
-    throw new Error(`Could not resolve channel: ${identifier}`);
+    const notFound = new Error(`Could not resolve channel: ${identifier}`);
+    notFound.code = 'CHANNEL_NOT_FOUND';
+    throw notFound;
   } catch (error) {
     logger.warn(`Failed to resolve channel identifier: ${identifier}`, error.message);
     throw error;
   }
+}
+
+/**
+ * Determine whether a channel resolution / fetch error means the channel does
+ * not exist, as opposed to a transient or server-side failure. Channel
+ * endpoints use this to return 404 (so callers skip dead channels) instead of
+ * 500 (which triggers indefinite retries).
+ * @param {Error} error
+ * @returns {boolean}
+ */
+export function isChannelNotFoundError(error) {
+  if (!error) return false;
+  if (error.code === 'CHANNEL_NOT_FOUND') return true;
+  const msg = (error.message || '').toLowerCase();
+  return (
+    msg.includes('could not resolve channel') ||
+    msg.includes('status code 404') ||
+    msg.includes('does not exist') ||
+    msg.includes('not found')
+  );
 }
 
 /**

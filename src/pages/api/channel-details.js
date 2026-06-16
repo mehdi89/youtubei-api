@@ -1,7 +1,7 @@
 import logger from "@/utils/logger";
 import cache, { TTL } from '@/utils/cache';
 import { cacheGet, cacheSet } from '@/utils/redis-cache';
-import { getInnertube, resolveChannelId } from "@/utils/innertube";
+import { getInnertube, resolveChannelId, isChannelNotFoundError } from "@/utils/innertube";
 
 /**
  * Channel Details API
@@ -155,6 +155,10 @@ export default async function handler(req, res) {
 
     return res.status(200).json(channelData);
   } catch (error) {
+    if (isChannelNotFoundError(error)) {
+      logger.warn(`Channel not found`, `Channel: ${id} | ${error.message}`);
+      return res.status(404).json({ message: "Channel not found" });
+    }
     logger.error(`Failed to fetch channel details`, `Channel: ${id} | Error: ${error.message}`);
     return res.status(500).json({ message: "Internal Server Error" });
   }
