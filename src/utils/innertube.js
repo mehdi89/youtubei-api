@@ -124,6 +124,56 @@ export function normalizeLockup(item) {
   };
 }
 
+// ASR (auto-generated) captions are produced asynchronously by YouTube minutes-to-hours
+// AFTER a video is published or a live stream ends. Ingestion is webhook-driven and fires
+// within seconds of publish, so a fresh upload often has no caption track *yet* — the
+// captions object is simply absent, not permanently missing. Callers use this to retry a
+// "no captions" result for recent videos instead of caching it as permanent (which was
+// silently dropping ~60% of recent-video transcripts).
+//
+// ponytail: 24h ceiling. ASR for supported languages lands within a few hours; 24h is
+// generous margin and terminates retries for the rare audio-bearing video that never gets
+// captions. Widen only if real transcripts are still being missed past a day.
+export const ASR_PENDING_MAX_AGE_HOURS = 24;
+
+/**
+ * Whether a video was published (or its live stream ended) recently enough that missing
+ * captions are plausibly still-generating ASR rather than permanently absent.
+ * @param {object} info - youtubei.js getInfo() result
+ * @param {number} maxAgeHours
+ * @returns {boolean}
+ */
+export function isRecentlyPublished(info, maxAgeHours = ASR_PENDING_MAX_AGE_HOURS) {
+  if (!info) return false;
+  const bi = info.basic_info || {};
+
+  // Live now / upcoming: captions will only exist once it airs — always retry later.
+  if (bi.is_live || bi.is_upcoming) return true;
+
+  // Live / post-live VOD: exact stream end (or start) timestamp.
+  const liveTs = bi.end_timestamp || bi.start_timestamp;
+  if (liveTs) {
+    const ageH = (Date.now() - new Date(liveTs).getTime()) / 3.6e6;
+    return ageH >= 0 && ageH <= maxAgeHours;
+  }
+
+  // Regular VOD: parse primary_info.published.
+  const txt = info.primary_info?.published?.text || '';
+  // Relative form ("3 hours ago" / "2 days ago") — precise.
+  if (/\b(second|minute|hour)s?\s+ago\b/i.test(txt)) return true;
+  const relDays = txt.match(/\b(\d+)\s+days?\s+ago\b/i);
+  if (relDays) return parseInt(relDays[1], 10) <= Math.ceil(maxAgeHours / 24);
+  // Absolute form ("Jul 23, 2026") — YouTube's default for recent uploads, but date-only
+  // (parses to local midnight, losing the time of day). Reason in whole days with +1 slop
+  // so a video published yesterday afternoon still counts as recent.
+  const abs = Date.parse(txt);
+  if (!Number.isNaN(abs)) {
+    const ageDays = (Date.now() - abs) / 8.64e7;
+    return ageDays >= -1 && ageDays <= maxAgeHours / 24 + 1;
+  }
+  return false;
+}
+
 /**
  * Decode HTML entities in a string
  * @param {string} encodedString - String with HTML entities

@@ -5,6 +5,7 @@ import {
   getInnertube,
   decodeEntities,
   selectBestLanguage,
+  isRecentlyPublished,
   HIGH_CONFIDENCE_LANGUAGES
 } from '@/utils/innertube';
 import { proxyFetch, isProxyConfigured, isDirectBlocked, recordDirectBlock, isYouTubeBlockResponse } from '@/utils/proxy';
@@ -279,14 +280,25 @@ export default async function handler(req, res) {
     const isNoCaptions = noCaptionsErrors.some(msg => error.message?.includes(msg));
 
     if (isNoCaptions) {
-      // Determine if retriable based on what YouTube returned
-      const retriable = !!(error.hasCaptionsObject || error.hasTrack);
-      let reason = retriable ? 'processing' : (error.message?.includes('disabled') ? 'disabled' : 'no_captions');
+      // captionsPending: YouTube returned a captions object/track but no usable text yet.
+      const captionsPending = !!(error.hasCaptionsObject || error.hasTrack);
+      const hasAudio = !videoInfo || detectHasAudio(videoInfo);
+      // A fresh, audio-bearing upload with no caption track yet is almost certainly waiting
+      // on ASR generation, not permanently caption-less — retry it.
+      const asrPending = hasAudio && !captionsPending && isRecentlyPublished(videoInfo);
 
-      // If no captions and video has no audio, use more specific reason
-      if (reason === 'no_captions' && videoInfo && !detectHasAudio(videoInfo)) {
+      const retriable = captionsPending || asrPending;
+
+      let reason;
+      if (captionsPending || asrPending) {
+        reason = 'processing';
+      } else if (error.message?.includes('disabled')) {
+        reason = 'disabled';
+      } else if (!hasAudio) {
         reason = 'no_audio';
         logger.info(`No audio detected for video`, `Video: ${id}`);
+      } else {
+        reason = 'no_captions';
       }
 
       const cacheTTL = retriable ? TTL.TRANSCRIPT_UNAVAILABLE : TTL.VIDEO_DETAILS;

@@ -4,7 +4,7 @@ jest.mock('youtubei.js', () => ({
   Log: { setLevel: jest.fn(), Level: { NONE: 0 } },
 }));
 
-import { normalizeLockup } from '../innertube';
+import { normalizeLockup, isRecentlyPublished } from '../innertube';
 
 const lockup = ({ rows, badgeText = '3:51:47', badgeStyle = 'THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT' }) => ({
   type: 'LockupView',
@@ -95,5 +95,44 @@ describe('normalizeLockup', () => {
     expect(out.view_count).toBeNull();
     expect(out.published.text).toBeNull();
     expect(out.author).toBeNull();
+  });
+});
+
+describe('isRecentlyPublished', () => {
+  const hoursAgoIso = h => new Date(Date.now() - h * 3.6e6).toISOString();
+  const vod = publishedText => ({ basic_info: {}, primary_info: { published: { text: publishedText } } });
+
+  it('returns false for missing info', () => {
+    expect(isRecentlyPublished(null)).toBe(false);
+    expect(isRecentlyPublished(undefined)).toBe(false);
+  });
+
+  it('always retries a live or upcoming stream', () => {
+    expect(isRecentlyPublished({ basic_info: { is_live: true } })).toBe(true);
+    expect(isRecentlyPublished({ basic_info: { is_upcoming: true } })).toBe(true);
+  });
+
+  it('retries a just-ended live stream, not one ended over the window', () => {
+    expect(isRecentlyPublished({ basic_info: { end_timestamp: hoursAgoIso(4) } })).toBe(true);
+    expect(isRecentlyPublished({ basic_info: { end_timestamp: hoursAgoIso(40) } })).toBe(false);
+  });
+
+  it('retries VOD with a recent relative publish string', () => {
+    expect(isRecentlyPublished(vod('3 hours ago'))).toBe(true);
+    expect(isRecentlyPublished(vod('42 minutes ago'))).toBe(true);
+    expect(isRecentlyPublished(vod('1 day ago'))).toBe(true);
+    expect(isRecentlyPublished(vod('5 days ago'))).toBe(false);
+  });
+
+  it('retries VOD published today/yesterday by absolute date, not a week ago', () => {
+    const day = ms => new Date(Date.now() - ms).toDateString(); // "Fri Jul 24 2026" — date only
+    expect(isRecentlyPublished(vod(day(0)))).toBe(true);              // today
+    expect(isRecentlyPublished(vod(day(24 * 3.6e6)))).toBe(true);      // ~1 day ago
+    expect(isRecentlyPublished(vod(day(7 * 24 * 3.6e6)))).toBe(false); // a week ago
+  });
+
+  it('does not treat an unparseable publish string as recent', () => {
+    expect(isRecentlyPublished(vod(''))).toBe(false);
+    expect(isRecentlyPublished(vod('sometime'))).toBe(false);
   });
 });
