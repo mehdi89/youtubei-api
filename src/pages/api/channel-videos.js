@@ -1,6 +1,7 @@
 import logger from "@/utils/logger";
 import cache, { TTL } from '@/utils/cache';
-import { getInnertube, resolveChannelId } from "@/utils/innertube";
+import { cacheGet, cacheSet } from '@/utils/redis-cache';
+import { getInnertube, resolveChannelId, isChannelNotFoundError, normalizeLockup } from "@/utils/innertube";
 
 /**
  * Channel Videos API
@@ -46,7 +47,7 @@ export default async function handler(req, res) {
 
   // Check cache first
   const cacheKey = cache.generateKey('channel-videos', { id, page, contentType });
-  const cached = cache.get(cacheKey);
+  const cached = await cacheGet(cacheKey);
   if (cached) {
     logger.info(`Cache hit for channel videos ${id}`);
     return res.status(200).json(cached);
@@ -104,10 +105,14 @@ export default async function handler(req, res) {
     logger.success(`Found ${items.length} ${contentType}`, `Channel: ${id} | Page: ${page}`);
 
     // Cache the response
-    cache.set(cacheKey, items, TTL.CHANNEL_VIDEOS);
+    await cacheSet(cacheKey, items, TTL.CHANNEL_VIDEOS);
 
     return res.status(200).json(items);
   } catch (error) {
+    if (isChannelNotFoundError(error)) {
+      logger.warn(`Channel not found`, `Channel: ${id} | ${error.message}`);
+      return res.status(404).json({ message: "Channel not found" });
+    }
     logger.error(`Failed to fetch channel ${contentType}`, `Channel: ${id} | Error: ${error.message}`);
     return res.status(500).json({ message: "Internal Server Error" });
   }
@@ -172,6 +177,8 @@ async function fetchContentTab(channel, contentType, page) {
  * Handles both regular videos and Shorts (which have different structures)
  */
 function formatVideoItem(item, channel) {
+  item = normalizeLockup(item);
+
   // Handle Shorts (ShortsLockupView type)
   if (item.type === 'ShortsLockupView') {
     const videoId = item.on_tap_endpoint?.payload?.videoId || 

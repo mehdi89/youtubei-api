@@ -6,7 +6,8 @@ import {
   HIGH_CONFIDENCE_LANGUAGES
 } from '@/utils/innertube';
 import cache, { TTL } from '@/utils/cache';
-import { withProxy, isProxyConfigured } from '@/utils/proxy';
+import { cacheGet, cacheSet } from '@/utils/redis-cache';
+import { proxyFetch, isProxyConfigured, isDirectBlocked, recordDirectBlock, isYouTubeBlockResponse, keepAliveAgent } from '@/utils/proxy';
 
 // Get API key from environment variables
 const API_KEY = process.env.YOUTUBE_API_KEY;
@@ -25,22 +26,27 @@ export default async function handler(req, res) {
     return res.status(401).json({ message: "Invalid API key" });
   }
 
-  const { 
-    id, 
+  const {
+    id,
     transcript: includeTranscript = true,
-    timestamped: includeTimestamped = false 
+    timestamped: includeTimestamped = false,
+    force = false
   } = req.body;
-  
+
   if (!id) {
     return res.status(400).json({ message: "Missing video ID" });
   }
 
-  // Check cache first
+  // Check cache first (skip if force=true)
   const cacheKey = cache.generateKey('video-details', { id, includeTranscript, includeTimestamped });
-  const cached = cache.get(cacheKey);
-  if (cached) {
-    logger.info(`Cache hit for video ${id}`);
-    return res.status(200).json(cached);
+  if (!force) {
+    const cached = await cacheGet(cacheKey);
+    if (cached) {
+      logger.info(`Cache hit for video ${id}`);
+      return res.status(200).json(cached);
+    }
+  } else {
+    logger.info(`Force refresh for video ${id} - skipping cache`);
   }
 
   try {
@@ -53,7 +59,7 @@ export default async function handler(req, res) {
     if (includeTranscript || includeTimestamped) {
       // Check transcript cache separately (longer TTL)
       const transcriptCacheKey = cache.generateKey('transcript', { id, timestamped: includeTimestamped });
-      const cachedTranscript = cache.get(transcriptCacheKey);
+      const cachedTranscript = force ? null : await cacheGet(transcriptCacheKey);
 
       if (cachedTranscript) {
         logger.info(`Cache hit for transcript ${id}`);
@@ -61,25 +67,42 @@ export default async function handler(req, res) {
         timestampedTranscript = cachedTranscript.timestampedTranscript;
       } else {
         if (includeTimestamped) {
-          timestampedTranscript = await fetchTimestampedTranscript(id);
-          if (!includeTranscript && timestampedTranscript.available) {
-            transcript = { available: true, content: timestampedTranscript.regular_content };
+          if (includeTranscript) {
+            // Both requested — fetch in parallel (both reuse video._captions)
+            const [ts, tr] = await Promise.all([
+              fetchTimestampedTranscript(id, video._captions),
+              fetchTranscript(video, id)
+            ]);
+            timestampedTranscript = ts;
+            transcript = tr;
           } else {
-            transcript = await fetchTranscript(video, id);
+            // Only timestamped
+            timestampedTranscript = await fetchTimestampedTranscript(id, video._captions);
+            if (timestampedTranscript.available) {
+              transcript = { available: true, content: timestampedTranscript.regular_content };
+            }
           }
         } else {
           transcript = await fetchTranscript(video, id);
         }
 
-        // Cache transcript result
-        cache.set(transcriptCacheKey, { transcript, timestampedTranscript }, TTL.TRANSCRIPT);
+        // Cache transcript result:
+        // - Available → long TTL (24h)
+        // - Unavailable + retriable (processing) → short TTL (5min) to retry soon
+        // - Unavailable + not retriable (no CC) → medium TTL (1h) to avoid waste
+        const transcriptAvailable = transcript.available || (timestampedTranscript && timestampedTranscript.available);
+        const isRetriable = transcript.retriable || (timestampedTranscript && timestampedTranscript.retriable);
+        const transcriptTTL = transcriptAvailable ? TTL.TRANSCRIPT : (isRetriable ? TTL.TRANSCRIPT_UNAVAILABLE : TTL.VIDEO_DETAILS);
+        await cacheSet(transcriptCacheKey, { transcript, timestampedTranscript }, transcriptTTL);
       }
     }
 
     const response = formatResponse(video, transcript, timestampedTranscript, includeTranscript, includeTimestamped);
 
-    // Cache the full response
-    cache.set(cacheKey, response, TTL.VIDEO_DETAILS);
+    // Cache the full response - short TTL if transcript is retriable (processing)
+    const transcriptRetriable = (includeTranscript && transcript.retriable) || (includeTimestamped && timestampedTranscript && timestampedTranscript.retriable);
+    const detailsTTL = transcriptRetriable ? TTL.TRANSCRIPT_UNAVAILABLE : TTL.VIDEO_DETAILS;
+    await cacheSet(cacheKey, response, detailsTTL);
 
     logger.success(`Processed video ${id}`, `Title: ${video.title}`);
     res.status(200).json(response);
@@ -144,6 +167,32 @@ async function fetchVideo(id) {
       }
     }
 
+    // Detect members-only / login-required videos via playability status
+    // YouTube returns metadata but status=LOGIN_REQUIRED for restricted content
+    const playabilityStatus = info.playability_status?.status || 'OK';
+    const playabilityReason = info.playability_status?.reason || null;
+    const isMembersOnly = (playabilityStatus === 'LOGIN_REQUIRED' || playabilityStatus === 'UNPLAYABLE') &&
+      (playabilityReason?.toLowerCase().includes('members') ||
+       playabilityReason?.toLowerCase().includes('join'));
+    const isUnplayable = playabilityStatus !== 'OK';
+
+    if (isUnplayable) {
+      logger.info(`Video not playable: ${playabilityStatus}`, `Video: ${id} | Reason: ${playabilityReason || 'unknown'}`);
+    }
+
+    // Detect silent/no-audio videos via loudness metadata
+    // YouTube reports loudness_db ≈ -9986 for silent audio tracks; real audio is > -100
+    let hasAudio = true;
+    const adaptiveFormats = info.streaming_data?.adaptive_formats || [];
+    const audioFormats = adaptiveFormats.filter(f => f.mime_type?.startsWith('audio/'));
+    if (audioFormats.length > 0) {
+      const maxLoudness = Math.max(...audioFormats.map(f => f.loudness_db ?? 0));
+      if (maxLoudness <= -100) {
+        hasAudio = false;
+        logger.info(`No audio detected (loudness: ${maxLoudness} dB)`, `Video: ${id}`);
+      }
+    }
+
     // Build normalized video object
     const video = {
       id: basicInfo.id || id,
@@ -153,9 +202,15 @@ async function fetchVideo(id) {
       viewCount: basicInfo.view_count || null,
       likeCount: basicInfo.like_count || null,
       isLiveContent: basicInfo.is_live || false,
+      isUpcoming: basicInfo.is_upcoming || false,
+      startTimestamp: basicInfo.start_timestamp || null,
       uploadDate: videoDetails?.published?.text || videoDetails?.relative_date?.text || null,
       channel: channel,
       chapters: chapters,
+      hasAudio: hasAudio,
+      isMembersOnly: isMembersOnly,
+      playabilityStatus: playabilityStatus,
+      playabilityReason: playabilityReason,
       // Store captions info for transcript fetching
       _captions: info.captions,
       _hasCaption: basicInfo.has_captions || false,
@@ -186,20 +241,21 @@ async function fetchVideo(id) {
 }
 
 /**
- * Fetch transcript using youtubei.js caption URL directly
+ * Fetch transcript using youtubei.js caption URL directly.
+ * Returns { success, content, method } on success.
+ * Returns { success: false, error, hasCaptionsObject, hasTrack } on failure
+ * so callers can determine retriability.
  */
-async function fetchTranscriptWithInnerTube(videoId) {
+async function fetchTranscriptWithInnerTube(videoId, captions = null) {
   try {
-    const yt = await getInnertube();
-    const info = await yt.getInfo(videoId);
-
-    if (!info || !info.captions) {
-      return { success: false, error: 'No captions available' };
+    // Reuse captions from fetchVideo() to avoid duplicate yt.getInfo() call
+    if (!captions) {
+      return { success: false, error: 'No captions available', hasCaptionsObject: false, hasTrack: false };
     }
 
-    const captionTracks = info.captions.caption_tracks || [];
+    const captionTracks = captions.caption_tracks || [];
     if (captionTracks.length === 0) {
-      return { success: false, error: 'No caption tracks' };
+      return { success: false, error: 'No caption tracks', hasCaptionsObject: true, hasTrack: false };
     }
 
     // Prefer English track
@@ -209,41 +265,47 @@ async function fetchTranscriptWithInnerTube(videoId) {
 
     const captionUrl = track.base_url;
     if (!captionUrl) {
-      return { success: false, error: 'No caption URL' };
+      return { success: false, error: 'No caption URL', hasCaptionsObject: true, hasTrack: true };
     }
 
-    // Use the innertube's http client to make the request (includes proper auth)
-    // If that fails, fallback to direct fetch with proxy
+    const captionHeaders = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Referer': `https://www.youtube.com/watch?v=${videoId}`
+    };
+
+    // Try direct fetch first (skip if our IP is YouTube-blocked)
+    // Use global fetch() - NOT yt.session.http.fetch() which prepends InnerTube base URL
     let xml;
-    try {
-      const response = await yt.session.http.fetch(captionUrl);
-      xml = await response.text();
-    } catch (fetchError) {
-      // Fallback to direct fetch with headers (using proxy if configured)
-      const useProxy = isProxyConfigured();
-      if (useProxy) {
-        logger.info('Using proxy for caption fetch', `Video: ${videoId}`);
+    if (!isDirectBlocked()) {
+      try {
+        const response = await fetch(captionUrl, { headers: captionHeaders, dispatcher: keepAliveAgent });
+        const body = await response.text();
+        if (isYouTubeBlockResponse(response.status, body)) {
+          recordDirectBlock();
+          throw new Error(`YouTube blocked direct IP (${response.status})`);
+        }
+        xml = body;
+      } catch (fetchError) {
+        logger.warn(`Direct caption fetch failed`, `Video: ${videoId} | ${fetchError.message}`);
+      }
+    } else {
+      logger.info(`Skipping direct fetch (IP blocked)`, `Video: ${videoId}`);
+    }
+
+    // Fallback to proxy pool
+    if (!xml) {
+      if (!isProxyConfigured()) {
+        return { success: false, error: 'Direct fetch failed and no proxy configured', hasCaptionsObject: true, hasTrack: true };
       }
 
-      const doFetch = async (dispatcher) => {
-        const response = await fetch(captionUrl, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Referer': `https://www.youtube.com/watch?v=${videoId}`
-          },
-          ...(dispatcher && { dispatcher })
-        });
-        if (!response.ok) {
-          throw new Error(`Caption fetch failed: ${response.status}`);
-        }
-        return response.text();
-      };
-
       try {
-        xml = await withProxy(doFetch);
+        const proxyResult = await proxyFetch(captionUrl, captionHeaders);
+        logger.info(`Proxy succeeded after ${proxyResult.hops} hop(s)`, `Video: ${videoId}`);
+        xml = proxyResult.body;
       } catch (proxyError) {
-        return { success: false, error: proxyError.message };
+        logger.warn(`Proxy failed after all hops`, `Video: ${videoId} | Error: ${proxyError.message}`);
+        return { success: false, error: proxyError.message, hasCaptionsObject: true, hasTrack: true };
       }
     }
 
@@ -268,25 +330,25 @@ async function fetchTranscriptWithInnerTube(videoId) {
     }
 
     if (!text.trim()) {
-      return { success: false, error: 'No transcript text found' };
+      return { success: false, error: 'Transcript content empty (processing)', hasCaptionsObject: true, hasTrack: true };
     }
 
     return { success: true, content: decodeEntities(text.trim()), method: 'youtubei.js' };
   } catch (error) {
-    return { success: false, error: error.message };
+    return { success: false, error: error.message, hasCaptionsObject: false, hasTrack: false };
   }
 }
 
 /**
- * Fetch timestamped transcript using youtubei.js with existing info object
+ * Fetch timestamped transcript using captions object from fetchVideo()
  */
-async function fetchTranscriptWithInnerTubeTimestamped(info, videoId, langCode = null) {
+async function fetchTranscriptWithInnerTubeTimestamped(captions, videoId, langCode = null) {
   try {
-    if (!info || !info.captions) {
+    if (!captions) {
       return { success: false, error: 'No captions available' };
     }
 
-    const captionTracks = info.captions.caption_tracks || [];
+    const captionTracks = captions.caption_tracks || [];
     if (captionTracks.length === 0) {
       return { success: false, error: 'No caption tracks' };
     }
@@ -307,37 +369,43 @@ async function fetchTranscriptWithInnerTubeTimestamped(info, videoId, langCode =
       return { success: false, error: 'No caption URL' };
     }
 
-    // Use the innertube's http client to make the request
-    const yt = await getInnertube();
+    const captionHeaders = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Referer': `https://www.youtube.com/watch?v=${videoId}`
+    };
+
+    // Try direct fetch first (skip if our IP is YouTube-blocked)
+    // Use global fetch() - NOT yt.session.http.fetch() which prepends InnerTube base URL
     let xml;
-    try {
-      const response = await yt.session.http.fetch(captionUrl);
-      xml = await response.text();
-    } catch (fetchError) {
-      // Fallback to direct fetch with headers (using proxy if configured)
-      const useProxy = isProxyConfigured();
-      if (useProxy) {
-        logger.info('Using proxy for caption fetch', `Video: ${videoId}`);
+    if (!isDirectBlocked()) {
+      try {
+        const response = await fetch(captionUrl, { headers: captionHeaders, dispatcher: keepAliveAgent });
+        const body = await response.text();
+        if (isYouTubeBlockResponse(response.status, body)) {
+          recordDirectBlock();
+          throw new Error(`YouTube blocked direct IP (${response.status})`);
+        }
+        xml = body;
+      } catch (fetchError) {
+        logger.warn(`Direct caption fetch failed`, `Video: ${videoId} | ${fetchError.message}`);
+      }
+    } else {
+      logger.info(`Skipping direct fetch (IP blocked)`, `Video: ${videoId}`);
+    }
+
+    // Fallback to proxy pool
+    if (!xml) {
+      if (!isProxyConfigured()) {
+        return { success: false, error: 'Direct fetch failed and no proxy configured' };
       }
 
-      const doFetch = async (dispatcher) => {
-        const response = await fetch(captionUrl, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Referer': `https://www.youtube.com/watch?v=${videoId}`
-          },
-          ...(dispatcher && { dispatcher })
-        });
-        if (!response.ok) {
-          throw new Error(`Caption fetch failed: ${response.status}`);
-        }
-        return response.text();
-      };
-
       try {
-        xml = await withProxy(doFetch);
+        const proxyResult = await proxyFetch(captionUrl, captionHeaders);
+        logger.info(`Proxy succeeded after ${proxyResult.hops} hop(s)`, `Video: ${videoId}`);
+        xml = proxyResult.body;
       } catch (proxyError) {
+        logger.warn(`Proxy failed after all hops`, `Video: ${videoId} | Error: ${proxyError.message}`);
         return { success: false, error: proxyError.message };
       }
     }
@@ -378,49 +446,74 @@ async function fetchTranscriptWithInnerTubeTimestamped(info, videoId, langCode =
 async function fetchTranscript(video, videoId) {
   if (!video || video.isLiveContent) {
     logger.info(`No transcript - Live content`, `Video: ${videoId}`);
-    return { available: false, reason: 'live_content' };
+    return { available: false, reason: 'live_content', retriable: false };
   }
 
   try {
     logger.fetch(`Transcript for ${videoId}`);
 
-    // Use youtubei.js directly for transcript fetching
-    const result = await fetchTranscriptWithInnerTube(videoId);
+    // Use youtubei.js directly for transcript fetching (reuse captions from fetchVideo)
+    const result = await fetchTranscriptWithInnerTube(videoId, video._captions);
     if (result.success) {
       logger.success(`Got transcript for ${videoId}`);
-      return { available: true, content: result.content };
+      return { available: true, content: result.content, retriable: false };
     }
 
-    // If youtubei.js fails and no captions available
-    if (!video._hasCaption) {
-      logger.info(`No transcript - No captions`, `Video: ${videoId}`);
-      return { available: false, reason: 'no_captions' };
+    // Determine state based on what YouTube returned
+    if (result.hasTrack) {
+      // Caption track exists but content is empty/failed - YouTube is likely still processing
+      logger.info(`Transcript processing (track exists, content empty)`, `Video: ${videoId}`);
+      return { available: false, reason: 'processing', retriable: true };
     }
 
-    logger.info(`No transcript available`, `Video: ${videoId}`);
-    return { available: false, reason: 'fetch_failed' };
+    if (result.hasCaptionsObject) {
+      // Captions system exists but no tracks yet - could be processing
+      logger.info(`Transcript processing (captions object exists, no tracks)`, `Video: ${videoId}`);
+      return { available: false, reason: 'processing', retriable: true };
+    }
+
+    // No captions system at all
+    // But if video was a recently ended live stream, YouTube may still be processing VOD captions
+    if (video.startTimestamp) {
+      const streamStart = new Date(video.startTimestamp).getTime();
+      const durationMs = (video.duration || 0) * 1000;
+      const streamEnd = streamStart + durationMs;
+      const timeSinceEnd = Date.now() - streamEnd;
+      const twelveHours = 12 * 60 * 60 * 1000;
+      if (timeSinceEnd < twelveHours) {
+        logger.info(`No transcript yet - stream ended <12h ago, may still be processing`, `Video: ${videoId}`);
+        return { available: false, reason: 'processing', retriable: true };
+      }
+      logger.info(`No transcript - past live stream ended >12h ago, likely no captions`, `Video: ${videoId}`);
+    }
+
+    // Distinguish no-audio (silent video) from no-captions (has audio but no CC)
+    if (video.hasAudio === false) {
+      logger.info(`No transcript - No audio detected`, `Video: ${videoId}`);
+      return { available: false, reason: 'no_audio', retriable: false };
+    }
+
+    logger.info(`No transcript - No captions`, `Video: ${videoId}`);
+    return { available: false, reason: 'no_captions', retriable: false };
   } catch (error) {
     if (error.message?.includes('Transcript is disabled')) {
       logger.info(`No transcript - Disabled`, `Video: ${videoId}`);
-      return { available: false, reason: 'disabled' };
+      return { available: false, reason: 'disabled', retriable: false };
     }
 
     logger.warn(`Transcript fetch error for ${videoId}`, error.message);
-    return { available: false, reason: 'error', error: error.message };
+    return { available: false, reason: 'error', error: error.message, retriable: true };
   }
 }
 
-async function fetchTimestampedTranscript(videoId) {
+async function fetchTimestampedTranscript(videoId, captions = null) {
   try {
     let selectedLang = null;
     let availableLangCodes = [];
 
-    // Get available languages from youtubei.js
-    const yt = await getInnertube();
-    const info = await yt.getInfo(videoId);
-
-    if (info?.captions?.caption_tracks) {
-      availableLangCodes = info.captions.caption_tracks
+    // Reuse captions from fetchVideo() to avoid duplicate yt.getInfo() call
+    if (captions?.caption_tracks) {
+      availableLangCodes = captions.caption_tracks
         .map(track => track.language_code)
         .filter(Boolean);
       logger.info(`Available languages`, `Count: ${availableLangCodes.length}`);
@@ -436,7 +529,7 @@ async function fetchTimestampedTranscript(videoId) {
     logger.fetch(`Fetching timestamped transcript`, `Video: ${videoId}${selectedLang ? ` | Language: ${selectedLang}` : ''}`);
 
     // Use youtubei.js directly for transcript fetching
-    const result = await fetchTranscriptWithInnerTubeTimestamped(info, videoId, selectedLang);
+    const result = await fetchTranscriptWithInnerTubeTimestamped(captions, videoId, selectedLang);
 
     if (!result.success) {
       logger.info(`Timestamped transcript failed`, `Video: ${videoId} | Error: ${result.error}`);
@@ -497,6 +590,12 @@ function formatResponse(video, transcript, timestampedTranscript, includeTranscr
     duration: video.duration,
     likeCount: video.likeCount,
     isLiveContent: video.isLiveContent,
+    isUpcoming: video.isUpcoming,
+    hasAudio: video.hasAudio,
+    isMembersOnly: video.isMembersOnly,
+    playabilityStatus: video.playabilityStatus,
+    playabilityReason: video.playabilityReason,
+    startTimestamp: video.startTimestamp,
     uploadDate: video.uploadDate,
     viewCount: video.viewCount,
   };
@@ -505,7 +604,8 @@ function formatResponse(video, transcript, timestampedTranscript, includeTranscr
     response.transcript = transcript.available ? transcript.content : null;
     response.transcript_status = {
       available: transcript.available,
-      reason: transcript.reason
+      reason: transcript.reason,
+      retriable: transcript.retriable || false,
     };
   }
 

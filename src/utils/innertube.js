@@ -9,40 +9,119 @@ import logger from './logger';
 // Suppress youtubei.js parser warnings (they're non-fatal)
 Log.setLevel(Log.Level.NONE);
 
-// Singleton Innertube instance (reused across requests)
-let innertubeInstance = null;
-let innertubeCreatedAt = 0;
+// Pool of Innertube instances (round-robin to avoid blocking during refresh)
+const POOL_SIZE = 3;
+const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
-// Refresh session every 30 minutes to prevent stale sessions
-const SESSION_TTL_MS = 30 * 60 * 1000;
+const pool = Array.from({ length: POOL_SIZE }, () => ({
+  instance: null,
+  createdAt: 0,
+  refreshing: null, // Promise while refreshing, null otherwise
+}));
+let rrIndex = 0;
 
 /**
- * Get or create a singleton Innertube instance.
- * Automatically refreshes if the session is older than SESSION_TTL_MS.
+ * Refresh a single pool slot, returning the new instance.
+ * Concurrent callers on the same slot share the same promise.
+ */
+async function refreshSlot(slot) {
+  if (slot.refreshing) return slot.refreshing;
+  slot.refreshing = (async () => {
+    try {
+      logger.info(`Creating new Innertube instance (slot ${pool.indexOf(slot)})`);
+      const instance = await Innertube.create({ generate_session_locally: true });
+      slot.instance = instance;
+      slot.createdAt = Date.now();
+      return instance;
+    } catch (err) {
+      logger.error(`Failed to refresh Innertube slot ${pool.indexOf(slot)}: ${err.message}`);
+      throw err;
+    } finally {
+      slot.refreshing = null;
+    }
+  })();
+  return slot.refreshing;
+}
+
+/**
+ * Get an Innertube instance from the pool using round-robin.
+ * If the selected slot is stale or refreshing, try the next slot.
  * @returns {Promise<Innertube>}
  */
 export async function getInnertube() {
   const now = Date.now();
-  if (innertubeInstance && (now - innertubeCreatedAt) > SESSION_TTL_MS) {
-    logger.info(`Innertube session expired (age: ${Math.round((now - innertubeCreatedAt) / 60000)}min), refreshing`);
-    innertubeInstance = null;
+  const startIdx = rrIndex;
+
+  for (let i = 0; i < POOL_SIZE; i++) {
+    const idx = (startIdx + i) % POOL_SIZE;
+    const slot = pool[idx];
+
+    // If this slot has a valid, non-stale instance, use it
+    if (slot.instance && (now - slot.createdAt) <= SESSION_TTL_MS) {
+      rrIndex = (idx + 1) % POOL_SIZE;
+      return slot.instance;
+    }
+
+    // If stale but not currently refreshing, trigger background refresh and try next slot
+    if (!slot.refreshing && slot.instance) {
+      refreshSlot(slot).catch(() => {}); // fire-and-forget, error already logged in refreshSlot
+    }
   }
-  if (!innertubeInstance) {
-    logger.info('Creating new Innertube instance');
-    innertubeInstance = await Innertube.create({
-      generate_session_locally: true,
-    });
-    innertubeCreatedAt = Date.now();
-  }
-  return innertubeInstance;
+
+  // All slots are stale or empty — must wait for one
+  const slot = pool[startIdx % POOL_SIZE];
+  rrIndex = (startIdx + 1) % POOL_SIZE;
+  return refreshSlot(slot);
 }
 
 /**
- * Reset the Innertube instance (useful for testing or error recovery)
+ * Reset all Innertube instances (useful for testing or error recovery)
  */
 export function resetInnertube() {
-  innertubeInstance = null;
-  innertubeCreatedAt = 0;
+  for (const slot of pool) {
+    slot.instance = null;
+    slot.createdAt = 0;
+    slot.refreshing = null;
+  }
+}
+
+/**
+ * YouTube now returns channel/playlist listing items as `LockupView` nodes instead of
+ * the old `Video`/`PlaylistVideo` nodes. Reshape a LockupView into the legacy field
+ * layout so the existing formatters keep working. Non-LockupView items pass through.
+ * @param {object} item
+ * @returns {object}
+ */
+export function normalizeLockup(item) {
+  if (item?.type !== 'LockupView') return item;
+
+  const parts = (item.metadata?.metadata?.metadata_rows || [])
+    .flatMap(row => (row.metadata_parts || []).map(part => part.text?.text))
+    .filter(Boolean);
+
+  const badges = (item.content_image?.overlays || []).flatMap(overlay => overlay.badges || []);
+  const durationBadge = badges.find(badge => /^\d{1,3}(:\d{2})+$/.test(badge.text || ''));
+  const isLive = badges.some(badge => /live/i.test(badge.text || '') || /LIVE/.test(badge.badge_style || ''));
+
+  // "789K views" / "No views" / "14K watching" (live) / "1 waiting" (upcoming)
+  const isCount = part => /(views?|watching|waiting)$/i.test(part);
+  // "3 weeks ago" / "Streamed 2 years ago" / "Scheduled for 7/24/26, 3:00 AM"
+  const isDate = part => /ago$/i.test(part) || /^(scheduled|premieres|streamed)/i.test(part);
+
+  const viewCount = parts.find(isCount);
+  const published = parts.find(isDate);
+  // Playlist lockups carry the channel name as its own row; channel lockups don't.
+  const author = parts.find(part => !isCount(part) && !isDate(part));
+
+  return {
+    id: item.content_id || null,
+    title: { text: item.metadata?.title?.text || null },
+    duration: durationBadge?.text || null,
+    view_count: viewCount || null,
+    published: { text: published || null },
+    is_live: isLive,
+    author: author ? { name: author, id: null } : null,
+  };
 }
 
 /**
@@ -123,11 +202,33 @@ export async function resolveChannelId(yt, identifier) {
       }
     }
 
-    throw new Error(`Could not resolve channel: ${identifier}`);
+    const notFound = new Error(`Could not resolve channel: ${identifier}`);
+    notFound.code = 'CHANNEL_NOT_FOUND';
+    throw notFound;
   } catch (error) {
     logger.warn(`Failed to resolve channel identifier: ${identifier}`, error.message);
     throw error;
   }
+}
+
+/**
+ * Determine whether a channel resolution / fetch error means the channel does
+ * not exist, as opposed to a transient or server-side failure. Channel
+ * endpoints use this to return 404 (so callers skip dead channels) instead of
+ * 500 (which triggers indefinite retries).
+ * @param {Error} error
+ * @returns {boolean}
+ */
+export function isChannelNotFoundError(error) {
+  if (!error) return false;
+  if (error.code === 'CHANNEL_NOT_FOUND') return true;
+  const msg = (error.message || '').toLowerCase();
+  return (
+    msg.includes('could not resolve channel') ||
+    msg.includes('status code 404') ||
+    msg.includes('does not exist') ||
+    msg.includes('not found')
+  );
 }
 
 /**

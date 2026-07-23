@@ -1,6 +1,7 @@
 import logger from "@/utils/logger";
 import cache, { TTL } from '@/utils/cache';
-import { getInnertube, resolveChannelId } from "@/utils/innertube";
+import { cacheGet, cacheSet } from '@/utils/redis-cache';
+import { getInnertube, resolveChannelId, isChannelNotFoundError, normalizeLockup } from "@/utils/innertube";
 
 /**
  * Channel Live Videos API
@@ -31,7 +32,7 @@ export default async function handler(req, res) {
 
   // Check cache first
   const cacheKey = cache.generateKey('channel-live', { id, page });
-  const cached = cache.get(cacheKey);
+  const cached = await cacheGet(cacheKey);
   if (cached) {
     logger.info(`Cache hit for channel live ${id}`);
     return res.status(200).json(cached);
@@ -97,10 +98,14 @@ export default async function handler(req, res) {
     logger.success(`Found ${items.length} live videos`, `Channel: ${id}`);
 
     // Cache the response
-    cache.set(cacheKey, items, TTL.CHANNEL_LIVE);
+    await cacheSet(cacheKey, items, TTL.CHANNEL_LIVE);
 
     return res.status(200).json(items);
   } catch (error) {
+    if (isChannelNotFoundError(error)) {
+      logger.warn(`Channel not found`, `Channel: ${id} | ${error.message}`);
+      return res.status(404).json({ message: "Channel not found" });
+    }
     logger.error(`Failed to fetch live videos`, `Channel: ${id} | Error: ${error.message}`);
     return res.status(500).json({ message: "Internal Server Error" });
   }
@@ -110,6 +115,7 @@ export default async function handler(req, res) {
  * Format a live video item
  */
 function formatLiveVideo(item, channel) {
+  item = normalizeLockup(item);
   const videoId = item.id || item.video_id;
   
   return {
