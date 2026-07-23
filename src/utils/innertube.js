@@ -103,12 +103,15 @@ export function normalizeLockup(item) {
   const durationBadge = badges.find(badge => /^\d{1,3}(:\d{2})+$/.test(badge.text || ''));
   const isLive = badges.some(badge => /live/i.test(badge.text || '') || /LIVE/.test(badge.badge_style || ''));
 
-  // "789K views" / "14K watching" (live) / "1 waiting" (upcoming)
-  const viewCount = parts.find(part => /\d.*(views?|watching|waiting)$/i.test(part));
+  // "789K views" / "No views" / "14K watching" (live) / "1 waiting" (upcoming)
+  const isCount = part => /(views?|watching|waiting)$/i.test(part);
   // "3 weeks ago" / "Streamed 2 years ago" / "Scheduled for 7/24/26, 3:00 AM"
-  const published = parts.find(part => /ago$/i.test(part) || /^(scheduled|premieres)/i.test(part));
+  const isDate = part => /ago$/i.test(part) || /^(scheduled|premieres|streamed)/i.test(part);
+
+  const viewCount = parts.find(isCount);
+  const published = parts.find(isDate);
   // Playlist lockups carry the channel name as its own row; channel lockups don't.
-  const author = parts.find(part => part !== viewCount && part !== published);
+  const author = parts.find(part => !isCount(part) && !isDate(part));
 
   return {
     id: item.content_id || null,

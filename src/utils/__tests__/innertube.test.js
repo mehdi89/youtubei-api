@@ -79,6 +79,13 @@ describe('normalizeLockup', () => {
     expect(out.author).toBeNull();
   });
 
+  it('does not mistake "No views" on a brand-new upload for a channel name', () => {
+    const out = normalizeLockup(lockup({ rows: [['Lex Fridman'], ['No views', '2 minutes ago']] }));
+
+    expect(out.view_count).toBe('No views');
+    expect(out.author).toEqual({ name: 'Lex Fridman', id: null });
+  });
+
   it('survives a lockup with no metadata rows or badges', () => {
     const out = normalizeLockup({ type: 'LockupView', content_id: 'xyz' });
 
