@@ -1,7 +1,7 @@
 import logger from "@/utils/logger";
 import cache, { TTL } from '@/utils/cache';
 import { cacheGet, cacheSet } from '@/utils/redis-cache';
-import { getInnertube, resolveChannelId, isChannelNotFoundError } from "@/utils/innertube";
+import { getInnertube, resolveChannelId, isChannelNotFoundError, normalizeLockup } from "@/utils/innertube";
 
 /**
  * Channel Live Videos API
@@ -115,6 +115,7 @@ export default async function handler(req, res) {
  * Format a live video item
  */
 function formatLiveVideo(item, channel) {
+  item = normalizeLockup(item);
   const videoId = item.id || item.video_id;
   
   return {

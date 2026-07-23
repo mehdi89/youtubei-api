@@ -1,7 +1,7 @@
 import logger from "@/utils/logger";
 import cache, { TTL } from '@/utils/cache';
 import { cacheGet, cacheSet } from '@/utils/redis-cache';
-import { getInnertube, resolveChannelId, isChannelNotFoundError } from "@/utils/innertube";
+import { getInnertube, resolveChannelId, isChannelNotFoundError, normalizeLockup } from "@/utils/innertube";
 
 /**
  * Channel Videos API
@@ -177,6 +177,8 @@ async function fetchContentTab(channel, contentType, page) {
  * Handles both regular videos and Shorts (which have different structures)
  */
 function formatVideoItem(item, channel) {
+  item = normalizeLockup(item);
+
   // Handle Shorts (ShortsLockupView type)
   if (item.type === 'ShortsLockupView') {
     const videoId = item.on_tap_endpoint?.payload?.videoId || 

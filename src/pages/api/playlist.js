@@ -1,7 +1,7 @@
 import logger from "@/utils/logger";
 import cache, { TTL } from '@/utils/cache';
 import { cacheGet, cacheSet } from '@/utils/redis-cache';
-import { getInnertube } from "@/utils/innertube";
+import { getInnertube, normalizeLockup } from "@/utils/innertube";
 
 /**
  * Playlist API
@@ -117,6 +117,7 @@ export default async function handler(req, res) {
  * Format a playlist video item
  */
 function formatPlaylistVideo(item) {
+  item = normalizeLockup(item);
   const videoId = item.id || item.video_id;
   
   return {

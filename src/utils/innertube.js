@@ -86,6 +86,42 @@ export function resetInnertube() {
 }
 
 /**
+ * YouTube now returns channel/playlist listing items as `LockupView` nodes instead of
+ * the old `Video`/`PlaylistVideo` nodes. Reshape a LockupView into the legacy field
+ * layout so the existing formatters keep working. Non-LockupView items pass through.
+ * @param {object} item
+ * @returns {object}
+ */
+export function normalizeLockup(item) {
+  if (item?.type !== 'LockupView') return item;
+
+  const parts = (item.metadata?.metadata?.metadata_rows || [])
+    .flatMap(row => (row.metadata_parts || []).map(part => part.text?.text))
+    .filter(Boolean);
+
+  const badges = (item.content_image?.overlays || []).flatMap(overlay => overlay.badges || []);
+  const durationBadge = badges.find(badge => /^\d{1,3}(:\d{2})+$/.test(badge.text || ''));
+  const isLive = badges.some(badge => /live/i.test(badge.text || '') || /LIVE/.test(badge.badge_style || ''));
+
+  // "789K views" / "14K watching" (live) / "1 waiting" (upcoming)
+  const viewCount = parts.find(part => /\d.*(views?|watching|waiting)$/i.test(part));
+  // "3 weeks ago" / "Streamed 2 years ago" / "Scheduled for 7/24/26, 3:00 AM"
+  const published = parts.find(part => /ago$/i.test(part) || /^(scheduled|premieres)/i.test(part));
+  // Playlist lockups carry the channel name as its own row; channel lockups don't.
+  const author = parts.find(part => part !== viewCount && part !== published);
+
+  return {
+    id: item.content_id || null,
+    title: { text: item.metadata?.title?.text || null },
+    duration: durationBadge?.text || null,
+    view_count: viewCount || null,
+    published: { text: published || null },
+    is_live: isLive,
+    author: author ? { name: author, id: null } : null,
+  };
+}
+
+/**
  * Decode HTML entities in a string
  * @param {string} encodedString - String with HTML entities
  * @returns {string} - Decoded string
